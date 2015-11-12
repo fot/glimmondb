@@ -1,0 +1,2 @@
+Add this to your .bashrc or the equivalent to your .cshrc:
+export SKA_DATA=/proj/sot/ska/data
