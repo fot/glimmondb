@@ -1,0 +1,1 @@
+"glimmondb" is a Python package that compiles an SQLite 3 database of the entire G_LIMMON.dec history of changes. This package also includes the necessary tools for maintaining this database as new versions of G_LIMMON.dec are promoted to flight status.
