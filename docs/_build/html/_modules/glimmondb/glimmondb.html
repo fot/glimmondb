@@ -1,0 +1,1138 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>glimmondb.glimmondb &mdash; glimmondb  documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <link rel="top" title="glimmondb  documentation" href="../../index.html" />
+    <link rel="up" title="Module code" href="../index.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for glimmondb.glimmondb</h1><div class="highlight"><pre>
+<span class="kn">import</span> <span class="nn">sqlite3</span>
+<span class="kn">import</span> <span class="nn">cPickle</span> <span class="kn">as</span> <span class="nn">pickle</span>
+<span class="kn">import</span> <span class="nn">shutil</span>
+<span class="kn">import</span> <span class="nn">errno</span>
+<span class="kn">from</span> <span class="nn">os.path</span> <span class="kn">import</span> <span class="n">join</span> <span class="k">as</span> <span class="n">pathjoin</span>
+<span class="kn">from</span> <span class="nn">os</span> <span class="kn">import</span> <span class="n">getenv</span><span class="p">,</span> <span class="n">getcwd</span>
+<span class="kn">import</span> <span class="nn">numpy</span> <span class="kn">as</span> <span class="nn">np</span>
+<span class="kn">import</span> <span class="nn">re</span>
+<span class="kn">import</span> <span class="nn">logging</span>
+<span class="nb">reload</span><span class="p">(</span><span class="n">logging</span><span class="p">)</span>  <span class="c"># avoids issue with ipython notebook</span>
+
+<span class="kn">from</span> <span class="nn">Chandra.Time</span> <span class="kn">import</span> <span class="n">DateTime</span>
+
+<span class="k">if</span> <span class="n">getenv</span><span class="p">(</span><span class="s">&#39;GLIMMONDATA&#39;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">getenv</span><span class="p">(</span><span class="s">&#39;TBDDATA&#39;</span><span class="p">):</span>
+    <span class="n">DBDIR</span> <span class="o">=</span> <span class="n">getenv</span><span class="p">(</span><span class="s">&#39;GLIMMONDATA&#39;</span><span class="p">)</span>
+    <span class="n">TDBDIR</span> <span class="o">=</span> <span class="n">getenv</span><span class="p">(</span><span class="s">&#39;TBDDATA&#39;</span><span class="p">)</span>
+<span class="k">elif</span> <span class="n">getenv</span><span class="p">(</span><span class="s">&#39;SKA_DATA&#39;</span><span class="p">):</span>
+    <span class="n">DBDIR</span> <span class="o">=</span> <span class="n">pathjoin</span><span class="p">(</span><span class="n">getenv</span><span class="p">(</span><span class="s">&#39;SKA_DATA&#39;</span><span class="p">),</span> <span class="s">&#39;glimmon_archive/&#39;</span><span class="p">)</span>
+    <span class="n">TDBDIR</span> <span class="o">=</span> <span class="n">pathjoin</span><span class="p">(</span><span class="n">getenv</span><span class="p">(</span><span class="s">&#39;SKA_DATA&#39;</span><span class="p">),</span> <span class="s">&#39;fot_tdb_archive/&#39;</span><span class="p">)</span>
+<span class="k">else</span><span class="p">:</span>
+    <span class="n">DBDIR</span> <span class="o">=</span> <span class="n">getcwd</span><span class="p">()</span>
+    <span class="n">TDBDIR</span> <span class="o">=</span> <span class="n">getcwd</span><span class="p">()</span>
+
+<span class="n">logfile</span> <span class="o">=</span> <span class="n">pathjoin</span><span class="p">(</span><span class="n">DBDIR</span><span class="p">,</span> <span class="s">&#39;DB_Commit.log&#39;</span><span class="p">)</span>
+<span class="n">logging</span><span class="o">.</span><span class="n">basicConfig</span><span class="p">(</span><span class="n">filename</span><span class="o">=</span><span class="n">logfile</span><span class="p">,</span> <span class="n">level</span><span class="o">=</span><span class="n">logging</span><span class="o">.</span><span class="n">DEBUG</span><span class="p">,</span>
+                    <span class="n">format</span><span class="o">=</span><span class="s">&#39;</span><span class="si">%(asctime)s</span><span class="s"> </span><span class="si">%(message)s</span><span class="s">&#39;</span><span class="p">)</span>
+
+
+<span class="k">def</span> <span class="nf">get_tdb</span><span class="p">(</span><span class="n">tdbs</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">revision</span><span class="o">=</span><span class="mo">000</span><span class="p">,</span> <span class="n">return_dates</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+<div class="viewcode-block" id="get_tdb"><a class="viewcode-back" href="../../glimmondb.html#glimmondb.glimmondb.get_tdb">[docs]</a>    <span class="sd">&quot;&quot;&quot; Retrieve appropriate telemetry database</span>
+
+<span class="sd">    :param tdb: tdb dictionary object</span>
+<span class="sd">    :param revision: associated G_LIMMON dec file revision number</span>
+<span class="sd">    :param return_dates: Flag to only return start dates for all databases.</span>
+
+<span class="sd">    :returns: Dictionary containing the relevant data from the appropriate TDB</span>
+
+<span class="sd">    This needs to be updated each time a new TDB version is introduced. Due to this level of</span>
+<span class="sd">    maintenance, I&#39;ve merged the actions to either return the tdb or return the start dates</span>
+<span class="sd">    for all databases since both the dates and new revision numbers need to be updated.</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">startdates</span> <span class="o">=</span> <span class="p">{</span><span class="s">&#39;p007&#39;</span><span class="p">:</span> <span class="s">&#39;1999:203:00:00:00&#39;</span><span class="p">,</span> <span class="s">&#39;p009&#39;</span><span class="p">:</span> <span class="s">&#39;2008:024:21:00:00&#39;</span><span class="p">,</span>
+                  <span class="s">&#39;p010&#39;</span><span class="p">:</span> <span class="s">&#39;2012:089:20:00:00&#39;</span><span class="p">,</span> <span class="s">&#39;p011&#39;</span><span class="p">:</span> <span class="s">&#39;2014:156:20:00:00&#39;</span><span class="p">,</span>
+                  <span class="s">&#39;p012&#39;</span><span class="p">:</span> <span class="s">&#39;2014:338:21:00:00&#39;</span><span class="p">,</span> <span class="s">&#39;p013&#39;</span><span class="p">:</span> <span class="s">&#39;2015:162:20:00:00&#39;</span><span class="p">,</span>
+                  <span class="s">&#39;p014&#39;</span><span class="p">:</span> <span class="s">&#39;2015:239:20:00:00&#39;</span><span class="p">}</span>
+
+    <span class="k">if</span> <span class="n">return_dates</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">startdates</span>
+
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">revision</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">revision</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">revision</span> <span class="o">&lt;=</span> <span class="mi">130</span><span class="p">:</span>
+            <span class="k">print</span> <span class="p">(</span><span class="s">&#39;Using P007&#39;</span><span class="p">)</span>
+            <span class="n">tdb</span> <span class="o">=</span> <span class="n">tdbs</span><span class="p">[</span><span class="s">&#39;p007&#39;</span><span class="p">]</span>
+        <span class="k">elif</span> <span class="n">revision</span> <span class="o">&lt;=</span> <span class="mi">228</span><span class="p">:</span>  <span class="c"># p009 starts with 131 and ends with 228 (inclusive)</span>
+            <span class="k">print</span> <span class="p">(</span><span class="s">&#39;Using P009&#39;</span><span class="p">)</span>
+            <span class="n">tdb</span> <span class="o">=</span> <span class="n">tdbs</span><span class="p">[</span><span class="s">&#39;p009&#39;</span><span class="p">]</span>
+        <span class="k">elif</span> <span class="n">revision</span> <span class="o">&lt;=</span> <span class="mi">245</span><span class="p">:</span>  <span class="c"># p010 starts with 229 and ends with 246 (inclusive)</span>
+            <span class="k">print</span> <span class="p">(</span><span class="s">&#39;Using P010&#39;</span><span class="p">)</span>
+            <span class="n">tdb</span> <span class="o">=</span> <span class="n">tdbs</span><span class="p">[</span><span class="s">&#39;p010&#39;</span><span class="p">]</span>
+        <span class="k">elif</span> <span class="n">revision</span> <span class="o">&lt;=</span> <span class="mi">249</span><span class="p">:</span>  <span class="c"># p011 starts with 246 and ends with 249 (inclusive)</span>
+            <span class="k">print</span> <span class="p">(</span><span class="s">&#39;Using P011&#39;</span><span class="p">)</span>
+            <span class="n">tdb</span> <span class="o">=</span> <span class="n">tdbs</span><span class="p">[</span><span class="s">&#39;p011&#39;</span><span class="p">]</span>
+        <span class="k">elif</span> <span class="n">revision</span> <span class="o">&lt;=</span> <span class="mi">256</span><span class="p">:</span>  <span class="c"># p012 starts with 250 and ends with 256 (inclusive)</span>
+            <span class="k">print</span> <span class="p">(</span><span class="s">&#39;Using P012&#39;</span><span class="p">)</span>
+            <span class="n">tdb</span> <span class="o">=</span> <span class="n">tdbs</span><span class="p">[</span><span class="s">&#39;p012&#39;</span><span class="p">]</span>
+        <span class="k">elif</span> <span class="n">revision</span> <span class="o">&lt;=</span> <span class="mi">260</span><span class="p">:</span>  <span class="c"># p013 starts with 257 and ends with 260</span>
+            <span class="k">print</span> <span class="p">(</span><span class="s">&#39;Using P013&#39;</span><span class="p">)</span>
+            <span class="n">tdb</span> <span class="o">=</span> <span class="n">tdbs</span><span class="p">[</span><span class="s">&#39;p013&#39;</span><span class="p">]</span>
+        <span class="k">elif</span> <span class="n">revision</span> <span class="o">&lt;=</span> <span class="mi">999</span><span class="p">:</span>  <span class="c"># p014 starts with 261 and ends with ?</span>
+            <span class="k">print</span> <span class="p">(</span><span class="s">&#39;Using P014&#39;</span><span class="p">)</span>
+            <span class="n">tdb</span> <span class="o">=</span> <span class="n">tdbs</span><span class="p">[</span><span class="s">&#39;p014&#39;</span><span class="p">]</span>
+        <span class="k">return</span> <span class="n">tdb</span>
+
+
+<span class="k">def</span> <span class="nf">read_glimmon</span><span class="p">(</span><span class="n">filename</span><span class="o">=</span><span class="s">&#39;/home/greta/AXAFSHARE/dec/G_LIMMON.dec&#39;</span><span class="p">):</span></div>
+<div class="viewcode-block" id="read_glimmon"><a class="viewcode-back" href="../../glimmondb.html#glimmondb.glimmondb.read_glimmon">[docs]</a>    <span class="sd">&quot;&quot;&quot; Import G_LIMMON.dec file</span>
+
+<span class="sd">    :param filename: Name/Location of G_LIMMON file to import</span>
+
+<span class="sd">    :returns: Dictionary containing the import G_LIMMON information</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">revision_pattern</span> <span class="o">=</span> <span class="s">&#39;.*\$Revision\s*:\s*([0-9.]+).*$&#39;</span>
+    <span class="n">date_pattern</span> <span class="o">=</span> <span class="s">&#39;.*\$Date\s*:\s*([0-9]+)/([0-9]+)/([0-9]+)\s+([0-9]+):([0-9]+):([0-9]+).*$&#39;</span>
+    <span class="n">version_pattern</span> <span class="o">=</span> <span class="s">&#39;.*Version\s*:\s*[$]?([A-Za-z0-9.:\s*]*)[$]?&quot;\s*$&#39;</span>
+    <span class="n">database_pattern</span> <span class="o">=</span> <span class="s">&#39;.*Database\s*:\s*(\w*)&quot;\s*$&#39;</span>
+
+    <span class="c"># Read the GLIMMON.dec file and store each line in &quot;gfile&quot;</span>
+    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="s">&#39;r&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">fid</span><span class="p">:</span>
+        <span class="n">gfile</span> <span class="o">=</span> <span class="n">fid</span><span class="o">.</span><span class="n">readlines</span><span class="p">()</span>
+
+    <span class="c"># Initialize the glimmon dictionary</span>
+    <span class="n">glimmon</span> <span class="o">=</span> <span class="p">{}</span>
+
+    <span class="c"># Step through each line in the GLIMMON.dec file</span>
+    <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">gfile</span><span class="p">:</span>
+
+        <span class="n">comment_line</span> <span class="o">=</span> <span class="n">line</span><span class="p">[</span><span class="n">line</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="s">&#39;#&#39;</span><span class="p">):]</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+
+        <span class="c"># Remove comments</span>
+        <span class="n">line</span> <span class="o">=</span> <span class="n">line</span><span class="p">[:</span><span class="n">line</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="s">&#39;#&#39;</span><span class="p">)]</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+
+        <span class="c"># Assume the line uses whitespace as a delimiter</span>
+        <span class="n">words</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="n">split</span><span class="p">()</span>
+
+        <span class="k">if</span> <span class="n">words</span><span class="p">:</span>
+            <span class="c"># Only process lines that begin with MLOAD, MLIMIT, MLMTOL, MLIMSW, MLMENABLE,</span>
+            <span class="c"># MLMDEFTOL, or MLMTHROW. This means that all lines with equations are</span>
+            <span class="c"># omitted; we are only interested in the limits and expected states</span>
+
+            <span class="k">if</span> <span class="p">(</span><span class="n">words</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s">&#39;MLOAD&#39;</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">words</span><span class="p">)</span> <span class="o">==</span> <span class="mi">2</span><span class="p">):</span>
+                <span class="n">name</span> <span class="o">=</span> <span class="n">words</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+                <span class="n">glimmon</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="n">name</span><span class="p">:</span> <span class="p">{}})</span>
+
+            <span class="k">elif</span> <span class="n">words</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s">&#39;MLIMIT&#39;</span><span class="p">:</span>
+                <span class="n">setnum</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">words</span><span class="p">[</span><span class="mi">2</span><span class="p">])</span>
+                <span class="n">glimmon</span><span class="p">[</span><span class="n">name</span><span class="p">]</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="n">setnum</span><span class="p">:</span> <span class="p">{}})</span>
+                <span class="k">if</span> <span class="n">glimmon</span><span class="p">[</span><span class="n">name</span><span class="p">]</span><span class="o">.</span><span class="n">has_key</span><span class="p">(</span><span class="s">&#39;setkeys&#39;</span><span class="p">):</span>
+                    <span class="n">glimmon</span><span class="p">[</span><span class="n">name</span><span class="p">][</span><span class="s">&#39;setkeys&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">setnum</span><span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">glimmon</span><span class="p">[</span><span class="n">name</span><span class="p">][</span><span class="s">&#39;setkeys&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">setnum</span><span class="p">,</span> <span class="p">]</span>
+
+                <span class="k">if</span> <span class="s">&#39;DEFAULT&#39;</span> <span class="ow">in</span> <span class="n">words</span><span class="p">:</span>
+                    <span class="n">glimmon</span><span class="p">[</span><span class="n">name</span><span class="p">]</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="s">&#39;default&#39;</span><span class="p">:</span> <span class="n">setnum</span><span class="p">})</span>
+
+                <span class="k">if</span> <span class="s">&#39;SWITCHSTATE&#39;</span> <span class="ow">in</span> <span class="n">words</span><span class="p">:</span>
+                    <span class="n">ind</span> <span class="o">=</span> <span class="n">words</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="s">&#39;SWITCHSTATE&#39;</span><span class="p">)</span>
+                    <span class="n">glimmon</span><span class="p">[</span><span class="n">name</span><span class="p">][</span><span class="n">setnum</span><span class="p">]</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="s">&#39;switchstate&#39;</span><span class="p">:</span> <span class="n">words</span><span class="p">[</span><span class="n">ind</span> <span class="o">+</span> <span class="mi">1</span><span class="p">]})</span>
+
+                <span class="k">if</span> <span class="s">&#39;PPENG&#39;</span> <span class="ow">in</span> <span class="n">words</span><span class="p">:</span>
+                    <span class="n">ind</span> <span class="o">=</span> <span class="n">words</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="s">&#39;PPENG&#39;</span><span class="p">)</span>
+                    <span class="n">glimmon</span><span class="p">[</span><span class="n">name</span><span class="p">]</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="s">&#39;type&#39;</span><span class="p">:</span> <span class="s">&#39;limit&#39;</span><span class="p">})</span>
+                    <span class="n">glimmon</span><span class="p">[</span><span class="n">name</span><span class="p">][</span><span class="n">setnum</span><span class="p">]</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="s">&#39;warning_low&#39;</span><span class="p">:</span>
+                                                  <span class="nb">float</span><span class="p">(</span><span class="n">words</span><span class="p">[</span><span class="n">ind</span> <span class="o">+</span> <span class="mi">1</span><span class="p">])})</span>
+                    <span class="n">glimmon</span><span class="p">[</span><span class="n">name</span><span class="p">][</span><span class="n">setnum</span><span class="p">]</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="s">&#39;caution_low&#39;</span><span class="p">:</span>
+                                                  <span class="nb">float</span><span class="p">(</span><span class="n">words</span><span class="p">[</span><span class="n">ind</span> <span class="o">+</span> <span class="mi">2</span><span class="p">])})</span>
+                    <span class="n">glimmon</span><span class="p">[</span><span class="n">name</span><span class="p">][</span><span class="n">setnum</span><span class="p">]</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="s">&#39;caution_high&#39;</span><span class="p">:</span>
+                                                  <span class="nb">float</span><span class="p">(</span><span class="n">words</span><span class="p">[</span><span class="n">ind</span> <span class="o">+</span> <span class="mi">3</span><span class="p">])})</span>
+                    <span class="n">glimmon</span><span class="p">[</span><span class="n">name</span><span class="p">][</span><span class="n">setnum</span><span class="p">]</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="s">&#39;warning_high&#39;</span><span class="p">:</span>
+                                                  <span class="nb">float</span><span class="p">(</span><span class="n">words</span><span class="p">[</span><span class="n">ind</span> <span class="o">+</span> <span class="mi">4</span><span class="p">])})</span>
+
+                <span class="k">if</span> <span class="s">&#39;EXPST&#39;</span> <span class="ow">in</span> <span class="n">words</span><span class="p">:</span>
+                    <span class="n">ind</span> <span class="o">=</span> <span class="n">words</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="s">&#39;EXPST&#39;</span><span class="p">)</span>
+                    <span class="n">glimmon</span><span class="p">[</span><span class="n">name</span><span class="p">]</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="s">&#39;type&#39;</span><span class="p">:</span> <span class="s">&#39;expected_state&#39;</span><span class="p">})</span>
+                    <span class="n">glimmon</span><span class="p">[</span><span class="n">name</span><span class="p">][</span><span class="n">setnum</span><span class="p">]</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="s">&#39;expst&#39;</span><span class="p">:</span> <span class="n">words</span><span class="p">[</span><span class="n">ind</span> <span class="o">+</span> <span class="mi">1</span><span class="p">]})</span>
+
+            <span class="k">elif</span> <span class="n">words</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s">&#39;MLMTOL&#39;</span><span class="p">:</span>
+                <span class="n">glimmon</span><span class="p">[</span><span class="n">name</span><span class="p">]</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="s">&#39;mlmtol&#39;</span><span class="p">:</span> <span class="nb">int</span><span class="p">(</span><span class="n">words</span><span class="p">[</span><span class="mi">1</span><span class="p">])})</span>
+
+            <span class="k">elif</span> <span class="n">words</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s">&#39;MLIMSW&#39;</span><span class="p">:</span>
+                <span class="n">glimmon</span><span class="p">[</span><span class="n">name</span><span class="p">]</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="s">&#39;mlimsw&#39;</span><span class="p">:</span> <span class="n">words</span><span class="p">[</span><span class="mi">1</span><span class="p">]})</span>
+
+            <span class="k">elif</span> <span class="n">words</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s">&#39;MLMENABLE&#39;</span><span class="p">:</span>
+                <span class="n">glimmon</span><span class="p">[</span><span class="n">name</span><span class="p">]</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="s">&#39;mlmenable&#39;</span><span class="p">:</span> <span class="nb">int</span><span class="p">(</span><span class="n">words</span><span class="p">[</span><span class="mi">1</span><span class="p">])})</span>
+
+            <span class="k">elif</span> <span class="n">words</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s">&#39;MLMDEFTOL&#39;</span><span class="p">:</span>
+                <span class="n">glimmon</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="s">&#39;mlmdeftol&#39;</span><span class="p">:</span> <span class="nb">int</span><span class="p">(</span><span class="n">words</span><span class="p">[</span><span class="mi">1</span><span class="p">])})</span>
+
+            <span class="k">elif</span> <span class="n">words</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s">&#39;MLMTHROW&#39;</span><span class="p">:</span>
+                <span class="n">glimmon</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="s">&#39;mlmthrow&#39;</span><span class="p">:</span> <span class="nb">int</span><span class="p">(</span><span class="n">words</span><span class="p">[</span><span class="mi">1</span><span class="p">])})</span>
+
+            <span class="k">elif</span> <span class="nb">len</span><span class="p">(</span><span class="n">re</span><span class="o">.</span><span class="n">findall</span><span class="p">(</span><span class="n">revision_pattern</span><span class="p">,</span> <span class="n">line</span><span class="p">))</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="n">version</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">findall</span><span class="p">(</span><span class="n">revision_pattern</span><span class="p">,</span> <span class="n">line</span><span class="p">)</span>
+                <span class="n">glimmon</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="s">&#39;revision&#39;</span><span class="p">:</span> <span class="n">version</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">strip</span><span class="p">()})</span>
+                <span class="n">glimmon</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="s">&#39;version&#39;</span><span class="p">:</span> <span class="n">version</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">strip</span><span class="p">()})</span>
+
+            <span class="k">elif</span> <span class="nb">len</span><span class="p">(</span><span class="n">re</span><span class="o">.</span><span class="n">findall</span><span class="p">(</span><span class="s">&#39;^XMSID TEXTONLY ROWCOL.*COLOR.*Version&#39;</span><span class="p">,</span> <span class="n">line</span><span class="p">))</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="n">version</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">findall</span><span class="p">(</span><span class="n">version_pattern</span><span class="p">,</span> <span class="n">line</span><span class="p">)</span>
+                <span class="n">glimmon</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="s">&#39;version&#39;</span><span class="p">:</span> <span class="n">version</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">strip</span><span class="p">()})</span>
+
+            <span class="k">elif</span> <span class="nb">len</span><span class="p">(</span><span class="n">re</span><span class="o">.</span><span class="n">findall</span><span class="p">(</span><span class="s">&#39;^XMSID TEXTONLY ROWCOL.*COLOR.*Database&#39;</span><span class="p">,</span> <span class="n">line</span><span class="p">))</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="n">database</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">findall</span><span class="p">(</span><span class="n">database_pattern</span><span class="p">,</span> <span class="n">line</span><span class="p">)</span>
+                <span class="n">glimmon</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="s">&#39;database&#39;</span><span class="p">:</span> <span class="n">database</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">strip</span><span class="p">()})</span>
+
+        <span class="c"># elif len(re.findall(&#39;^#\$Revision&#39;, comment_line)) &gt; 0:</span>
+        <span class="k">elif</span> <span class="nb">len</span><span class="p">(</span><span class="n">re</span><span class="o">.</span><span class="n">findall</span><span class="p">(</span><span class="n">revision_pattern</span><span class="p">,</span> <span class="n">comment_line</span><span class="p">))</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">revision</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">findall</span><span class="p">(</span><span class="n">revision_pattern</span><span class="p">,</span> <span class="n">comment_line</span><span class="p">)</span>
+            <span class="n">glimmon</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="s">&#39;revision&#39;</span><span class="p">:</span> <span class="n">revision</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">strip</span><span class="p">()})</span>
+
+        <span class="c"># elif len(re.findall(&#39;^#\$Date&#39;, comment_line)) &gt; 0:</span>
+        <span class="k">elif</span> <span class="nb">len</span><span class="p">(</span><span class="n">re</span><span class="o">.</span><span class="n">findall</span><span class="p">(</span><span class="n">date_pattern</span><span class="p">,</span> <span class="n">comment_line</span><span class="p">))</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">date</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">findall</span><span class="p">(</span><span class="n">date_pattern</span><span class="p">,</span> <span class="n">comment_line</span><span class="p">)</span>
+            <span class="n">glimmon</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="s">&#39;date&#39;</span><span class="p">:</span> <span class="n">date</span><span class="p">[</span><span class="mi">0</span><span class="p">]})</span>
+
+    <span class="k">return</span> <span class="n">glimmon</span>
+
+
+<span class="k">def</span> <span class="nf">assign_sets</span><span class="p">(</span><span class="n">dbsets</span><span class="p">):</span></div>
+<div class="viewcode-block" id="assign_sets"><a class="viewcode-back" href="../../glimmondb.html#glimmondb.glimmondb.assign_sets">[docs]</a>    <span class="sd">&quot;&quot;&quot; Copy over only the limit/expst sets, other stuff is not copied.</span>
+
+<span class="sd">    :param dbsets: Datastructure stored in the TDB as tdb[msid][&#39;limit&#39;]</span>
+
+<span class="sd">    :returns: Dictionary containing the relevant limit/expected state data</span>
+
+<span class="sd">    This also adds a list of set numbers using zero-based numbering.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">limits</span> <span class="o">=</span> <span class="p">{</span><span class="s">&#39;setkeys&#39;</span><span class="p">:</span> <span class="p">[]}</span>
+    <span class="k">for</span> <span class="n">setnum</span> <span class="ow">in</span> <span class="n">dbsets</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+        <span class="n">setnumint</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">setnum</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span>
+        <span class="n">limits</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="n">setnumint</span><span class="p">:</span> <span class="n">dbsets</span><span class="p">[</span><span class="n">setnum</span><span class="p">]})</span>
+        <span class="n">limits</span><span class="p">[</span><span class="s">&#39;setkeys&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">setnumint</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">limits</span>
+
+
+<span class="k">def</span> <span class="nf">is_not_nan</span><span class="p">(</span><span class="n">arg</span><span class="p">):</span></div>
+<div class="viewcode-block" id="is_not_nan"><a class="viewcode-back" href="../../glimmondb.html#glimmondb.glimmondb.is_not_nan">[docs]</a>    <span class="sd">&quot;&quot;&quot; Test to see if a variable is not a nan type.</span>
+
+<span class="sd">    :param arg: Variable to be tested</span>
+
+<span class="sd">    :returns: True if a variable is not a nan type, otherwise False</span>
+
+<span class="sd">    The Numpy isnan function only works on numeric data (including arrays), not strings or other</span>
+<span class="sd">    types. This &quot;fixes&quot; this function so that it returns a False if the argument is a nan type,</span>
+<span class="sd">    regardless of input type. This function returns a True if it is anything but a nan type.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">arg</span><span class="p">)</span>
+    <span class="k">except</span> <span class="p">(</span><span class="ne">TypeError</span><span class="p">,</span> <span class="ne">NotImplementedError</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">True</span>
+    <span class="k">return</span> <span class="bp">False</span>
+
+
+<span class="k">def</span> <span class="nf">fill_limits</span><span class="p">(</span><span class="n">tdb</span><span class="p">,</span> <span class="n">g</span><span class="p">,</span> <span class="n">msid</span><span class="p">):</span></div>
+<div class="viewcode-block" id="fill_limits"><a class="viewcode-back" href="../../glimmondb.html#glimmondb.glimmondb.fill_limits">[docs]</a>    <span class="sd">&quot;&quot;&quot; Fill in tdb limit data where none are explicitly specified in G_LIMMON.</span>
+
+<span class="sd">    :param tdb: TDB datastructure (corresponding to p012, p013, etc.)</span>
+<span class="sd">    :param g: G_LIMMON datastructure (corresponding to a single version, e.g. 2.256)</span>
+<span class="sd">    :param msid: Current MSID</span>
+
+<span class="sd">    There is no return value, the &quot;g&quot; datastructure is updated in place. </span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">limits</span> <span class="o">=</span> <span class="n">assign_sets</span><span class="p">(</span><span class="n">tdb</span><span class="p">[</span><span class="n">msid</span><span class="p">][</span><span class="s">&#39;limit&#39;</span><span class="p">])</span>
+
+    <span class="n">limits</span><span class="p">[</span><span class="s">&#39;type&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;limit&#39;</span>
+
+    <span class="k">if</span> <span class="n">is_not_nan</span><span class="p">(</span><span class="n">tdb</span><span class="p">[</span><span class="n">msid</span><span class="p">][</span><span class="s">&#39;limit_default_set_num&#39;</span><span class="p">]):</span>
+        <span class="n">limits</span><span class="p">[</span><span class="s">&#39;default&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">tdb</span><span class="p">[</span><span class="n">msid</span><span class="p">][</span><span class="s">&#39;limit_default_set_num&#39;</span><span class="p">]</span> <span class="o">-</span> <span class="mi">1</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">limits</span><span class="p">[</span><span class="s">&#39;default&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span>
+
+    <span class="c"># Alternate limit/es sets are automatically added to GLIMMON by GRETA, GLIMMON only adds MSIDs</span>
+    <span class="c"># to the current set of MSIDs and *prepends* limit/es sets that will take precedence</span>
+    <span class="c"># over sets defined in the database.</span>
+    <span class="k">if</span> <span class="n">is_not_nan</span><span class="p">(</span><span class="n">tdb</span><span class="p">[</span><span class="n">msid</span><span class="p">][</span><span class="s">&#39;limit_switch_msid&#39;</span><span class="p">]):</span>
+        <span class="n">limits</span><span class="p">[</span><span class="s">&#39;mlimsw&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">tdb</span><span class="p">[</span><span class="n">msid</span><span class="p">][</span><span class="s">&#39;limit_switch_msid&#39;</span><span class="p">]</span>
+
+        <span class="k">if</span> <span class="s">&#39;lim_switch&#39;</span> <span class="ow">in</span> <span class="n">tdb</span><span class="p">[</span><span class="n">msid</span><span class="p">]</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+            <span class="k">for</span> <span class="n">setkey</span> <span class="ow">in</span> <span class="n">limits</span><span class="p">[</span><span class="s">&#39;setkeys&#39;</span><span class="p">]:</span>  <span class="c"># assuming there are limit switch states for each set</span>
+                <span class="n">charkey</span> <span class="o">=</span> <span class="nb">unicode</span><span class="p">(</span><span class="n">setkey</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">limits</span><span class="p">[</span><span class="n">setkey</span><span class="p">][</span><span class="s">&#39;switchstate&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">tdb</span><span class="p">[</span><span class="n">msid</span><span class="p">][</span><span class="s">&#39;lim_switch&#39;</span><span class="p">][</span><span class="n">charkey</span><span class="p">][</span><span class="s">&#39;state_code&#39;</span><span class="p">]</span>
+                <span class="k">except</span><span class="p">:</span>
+                    <span class="n">limits</span><span class="p">[</span><span class="n">setkey</span><span class="p">][</span><span class="s">&#39;switchstate&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">u&#39;none&#39;</span>
+
+    <span class="c"># for setkey in limits[&#39;setkeys&#39;]:</span>
+    <span class="c">#     if &#39;state_code&#39; in limits[setkey].keys():</span>
+    <span class="c">#         limits[setkey][&#39;switchstate&#39;] = limits[setkey][&#39;state_code&#39;]</span>
+    <span class="c">#         _ = limits[setkey].pop(&#39;state_code&#39;)</span>
+
+    <span class="c"># Fill in the default tolerance specified in the GLIMMON file</span>
+    <span class="k">if</span> <span class="s">&#39;mlmtol&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">g</span><span class="p">[</span><span class="n">msid</span><span class="o">.</span><span class="n">upper</span><span class="p">()]</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+        <span class="n">limits</span><span class="p">[</span><span class="s">&#39;mlmtol&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">g</span><span class="p">[</span><span class="s">&#39;mlmdeftol&#39;</span><span class="p">]</span>
+
+    <span class="c"># if mlmenable is not specified, set it to 1 (enabled) as a default</span>
+    <span class="k">if</span> <span class="s">&#39;mlmenable&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">g</span><span class="p">[</span><span class="n">msid</span><span class="o">.</span><span class="n">upper</span><span class="p">()]</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+        <span class="n">limits</span><span class="p">[</span><span class="s">&#39;mlmenable&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
+
+    <span class="c"># GLIMMON values take precedence over database values so if any are defined, update</span>
+    <span class="c"># the database dict with the GLIMMON fields</span>
+    <span class="n">limits</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">g</span><span class="p">[</span><span class="n">msid</span><span class="o">.</span><span class="n">upper</span><span class="p">()])</span>
+
+    <span class="c"># Copy over all limits fields</span>
+    <span class="n">g</span><span class="p">[</span><span class="n">msid</span><span class="o">.</span><span class="n">upper</span><span class="p">()]</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">limits</span><span class="p">)</span>
+
+
+<span class="k">def</span> <span class="nf">fill_states</span><span class="p">(</span><span class="n">tdb</span><span class="p">,</span> <span class="n">g</span><span class="p">,</span> <span class="n">msid</span><span class="p">):</span></div>
+<div class="viewcode-block" id="fill_states"><a class="viewcode-back" href="../../glimmondb.html#glimmondb.glimmondb.fill_states">[docs]</a>    <span class="sd">&quot;&quot;&quot; Fill in tdb expected state data where none are explicitly specified in G_LIMMON.</span>
+
+<span class="sd">    :param tdb: TDB datastructure (corresponding to p012, p013, etc.)</span>
+<span class="sd">    :param g: G_LIMMON datastructure (corresponding to a single version, e.g. 2.256)</span>
+<span class="sd">    :param msid: Current MSID</span>
+
+<span class="sd">    There is no return value, the &quot;g&quot; datastructure is updated in place. </span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">states</span> <span class="o">=</span> <span class="n">assign_sets</span><span class="p">(</span><span class="n">tdb</span><span class="p">[</span><span class="n">msid</span><span class="p">][</span><span class="s">&#39;exp_state&#39;</span><span class="p">])</span>
+
+    <span class="n">states</span><span class="p">[</span><span class="s">&#39;type&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;expected_state&#39;</span>
+
+    <span class="c"># Specify a default set.</span>
+    <span class="k">if</span> <span class="n">is_not_nan</span><span class="p">(</span><span class="n">tdb</span><span class="p">[</span><span class="n">msid</span><span class="p">][</span><span class="s">&#39;es_default_set_num&#39;</span><span class="p">]):</span>
+        <span class="n">states</span><span class="p">[</span><span class="s">&#39;default&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">tdb</span><span class="p">[</span><span class="n">msid</span><span class="p">][</span><span class="s">&#39;es_default_set_num&#39;</span><span class="p">]</span> <span class="o">-</span> <span class="mi">1</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">states</span><span class="p">[</span><span class="s">&#39;default&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span>
+
+    <span class="c"># Alternate limit/es sets are automatically added to GLIMMON by GRETA, GLIMMON only adds MSIDs</span>
+    <span class="c"># to the current set of MSIDs and *prepends* limit/es sets that will take precedence</span>
+    <span class="c"># over sets defined in the database.</span>
+    <span class="k">if</span> <span class="n">is_not_nan</span><span class="p">(</span><span class="n">tdb</span><span class="p">[</span><span class="n">msid</span><span class="p">][</span><span class="s">&#39;es_switch_msid&#39;</span><span class="p">]):</span>
+        <span class="n">states</span><span class="p">[</span><span class="s">&#39;mlimsw&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">tdb</span><span class="p">[</span><span class="n">msid</span><span class="p">][</span><span class="s">&#39;es_switch_msid&#39;</span><span class="p">]</span>
+
+        <span class="k">if</span> <span class="s">&#39;es_switch&#39;</span> <span class="ow">in</span> <span class="n">tdb</span><span class="p">[</span><span class="n">msid</span><span class="p">]</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+            <span class="k">for</span> <span class="n">setkey</span> <span class="ow">in</span> <span class="n">states</span><span class="p">[</span><span class="s">&#39;setkeys&#39;</span><span class="p">]:</span>  <span class="c"># assuming there are limit switch states for each set</span>
+                <span class="n">charkey</span> <span class="o">=</span> <span class="nb">unicode</span><span class="p">(</span><span class="n">setkey</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">states</span><span class="p">[</span><span class="n">setkey</span><span class="p">][</span><span class="s">&#39;switchstate&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">tdb</span><span class="p">[</span><span class="n">msid</span><span class="p">][</span><span class="s">&#39;es_switch&#39;</span><span class="p">][</span><span class="n">charkey</span><span class="p">][</span><span class="s">&#39;state_code&#39;</span><span class="p">]</span>
+                <span class="k">except</span><span class="p">:</span>
+                    <span class="n">states</span><span class="p">[</span><span class="n">setkey</span><span class="p">][</span><span class="s">&#39;switchstate&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">u&#39;none&#39;</span>
+
+    <span class="k">for</span> <span class="n">setkey</span> <span class="ow">in</span> <span class="n">states</span><span class="p">[</span><span class="s">&#39;setkeys&#39;</span><span class="p">]:</span>
+        <span class="c"># if &#39;state_code&#39; in states[setkey].keys():</span>
+        <span class="c">#     states[setkey][&#39;switchstate&#39;] = states[setkey][&#39;state_code&#39;]</span>
+        <span class="c">#     _ = states[setkey].pop(&#39;state_code&#39;)</span>
+
+        <span class="k">if</span> <span class="s">&#39;expected_state&#39;</span> <span class="ow">in</span> <span class="n">states</span><span class="p">[</span><span class="n">setkey</span><span class="p">]:</span>
+            <span class="c"># This could be listed as expst or expected_state, not sure why, make sure it is expst</span>
+            <span class="n">states</span><span class="p">[</span><span class="n">setkey</span><span class="p">][</span><span class="s">&#39;expst&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">states</span><span class="p">[</span><span class="n">setkey</span><span class="p">][</span><span class="s">&#39;expected_state&#39;</span><span class="p">]</span>
+            <span class="n">_</span> <span class="o">=</span> <span class="n">states</span><span class="p">[</span><span class="n">setkey</span><span class="p">]</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s">&#39;expected_state&#39;</span><span class="p">)</span>
+
+    <span class="c"># Fill in the default tolerance specified in the GLIMMON file</span>
+    <span class="k">if</span> <span class="s">&#39;mlmtol&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">g</span><span class="p">[</span><span class="n">msid</span><span class="o">.</span><span class="n">upper</span><span class="p">()]</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+        <span class="n">states</span><span class="p">[</span><span class="s">&#39;mlmtol&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">g</span><span class="p">[</span><span class="s">&#39;mlmdeftol&#39;</span><span class="p">]</span>
+
+    <span class="c"># if mlmenable is not specified, set it to 1 (enabled) as a default</span>
+    <span class="k">if</span> <span class="s">&#39;mlmenable&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">g</span><span class="p">[</span><span class="n">msid</span><span class="o">.</span><span class="n">upper</span><span class="p">()]</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+        <span class="n">states</span><span class="p">[</span><span class="s">&#39;mlmenable&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
+
+    <span class="c"># GLIMMON values take precedence over database values so if any are defined, update</span>
+    <span class="c"># the database dict with the GLIMMON fields</span>
+    <span class="n">states</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">g</span><span class="p">[</span><span class="n">msid</span><span class="o">.</span><span class="n">upper</span><span class="p">()])</span>
+
+    <span class="c"># Copy over all states fields</span>
+    <span class="n">g</span><span class="p">[</span><span class="n">msid</span><span class="o">.</span><span class="n">upper</span><span class="p">()]</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">states</span><span class="p">)</span>
+
+
+<span class="k">def</span> <span class="nf">update_msid</span><span class="p">(</span><span class="n">msid</span><span class="p">,</span> <span class="n">tdb</span><span class="p">,</span> <span class="n">g</span><span class="p">):</span></div>
+<div class="viewcode-block" id="update_msid"><a class="viewcode-back" href="../../glimmondb.html#glimmondb.glimmondb.update_msid">[docs]</a>    <span class="sd">&quot;&quot;&quot; Call the appropriate function to fill in limits or expected states.</span>
+
+<span class="sd">    :param msid: Current MSID</span>
+<span class="sd">    :param tdb: TDB datastructure (corresponding to p012, p013, etc.)</span>
+<span class="sd">    :param g: G_LIMMON datastructure (corresponding to a single version, e.g. 2.256)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">msid</span> <span class="ow">in</span> <span class="n">tdb</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+        <span class="k">if</span> <span class="n">tdb</span><span class="p">[</span><span class="n">msid</span><span class="p">]</span><span class="o">.</span><span class="n">has_key</span><span class="p">(</span><span class="s">&#39;limit&#39;</span><span class="p">):</span>
+            <span class="n">fill_limits</span><span class="p">(</span><span class="n">tdb</span><span class="p">,</span> <span class="n">g</span><span class="p">,</span> <span class="n">msid</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">tdb</span><span class="p">[</span><span class="n">msid</span><span class="p">]</span><span class="o">.</span><span class="n">has_key</span><span class="p">(</span><span class="s">&#39;exp_state&#39;</span><span class="p">):</span>
+            <span class="n">fill_states</span><span class="p">(</span><span class="n">tdb</span><span class="p">,</span> <span class="n">g</span><span class="p">,</span> <span class="n">msid</span><span class="p">)</span>
+
+
+<span class="k">class</span> <span class="nc">GLimit</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span></div>
+<div class="viewcode-block" id="GLimit"><a class="viewcode-back" href="../../glimmondb.html#glimmondb.glimmondb.GLimit">[docs]</a>
+    <span class="sd">&quot;&quot;&quot; G_LIMMON instance for outputting es/limit data in row format.</span>
+
+<span class="sd">    This is used to convert the dictionary of es/limit data for each msid and set into </span>
+<span class="sd">    line entries, where each line contains all the required information for each msid and set</span>
+<span class="sd">    pair. This resulting format is how the sqlite3 database tables for limits and expected</span>
+<span class="sd">    states (separate tables) are structured.</span>
+
+<span class="sd">    Remember that an MSID/Set pair defines a unique condition, for one point in time. </span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">gdb</span><span class="p">,</span> <span class="n">discard_disabled_sets</span><span class="o">=</span><span class="bp">True</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot; Create row-based tables for limits and expected states from an imported G_LIMMON file.</span>
+
+<span class="sd">        :param gdb: Dictionary containing the definitions defined in one G_LIMMON file.</span>
+
+<span class="sd">        Note: the input argument &quot;gdb&quot; is expected to have TDB data filled in where limits and</span>
+<span class="sd">        expected states are not explicitly defined.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">gdb</span> <span class="o">=</span> <span class="n">gdb</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">rootfields</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;mlmenable&#39;</span><span class="p">,</span> <span class="s">&#39;mlmtol&#39;</span><span class="p">,</span> <span class="s">&#39;default&#39;</span><span class="p">,</span> <span class="s">&#39;mlimsw&#39;</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">limitsetfields</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="s">&#39;caution_high&#39;</span><span class="p">,</span> <span class="s">&#39;caution_low&#39;</span><span class="p">,</span> <span class="s">&#39;warning_high&#39;</span><span class="p">,</span> <span class="s">&#39;warning_low&#39;</span><span class="p">,</span> <span class="s">&#39;switchstate&#39;</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">statesetfields</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;expst&#39;</span><span class="p">,</span> <span class="s">&#39;switchstate&#39;</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">msids</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">filter_msids</span><span class="p">()</span>
+        <span class="n">d</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">date</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">date</span> <span class="o">=</span> <span class="s">&#39;{}-{}-{} {}:{}:{}&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">d</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">d</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">d</span><span class="p">[</span><span class="mi">2</span><span class="p">],</span> <span class="n">d</span><span class="p">[</span><span class="mi">3</span><span class="p">],</span> <span class="n">d</span><span class="p">[</span><span class="mi">4</span><span class="p">],</span> <span class="n">d</span><span class="p">[</span><span class="mi">5</span><span class="p">])</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">datesec</span> <span class="o">=</span> <span class="n">DateTime</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">date</span><span class="p">)</span><span class="o">.</span><span class="n">secs</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">discard_disabled_sets</span> <span class="o">=</span> <span class="n">discard_disabled_sets</span>
+
+    <span class="k">def</span> <span class="nf">filter_msids</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<div class="viewcode-block" id="GLimit.filter_msids"><a class="viewcode-back" href="../../glimmondb.html#glimmondb.glimmondb.GLimit.filter_msids">[docs]</a>        <span class="sd">&quot;&quot;&quot; Assign an &quot;msids&quot; attribute to this class.</span>
+
+<span class="sd">        This list of msids is generated from the self.gdb dictionary keys with non-msid keys</span>
+<span class="sd">        removed.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">msids</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">gdb</span><span class="o">.</span><span class="n">keys</span><span class="p">()</span>
+        <span class="n">removekeys</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;revision&#39;</span><span class="p">,</span> <span class="s">&#39;version&#39;</span><span class="p">,</span> <span class="s">&#39;mlmdeftol&#39;</span><span class="p">,</span> <span class="s">&#39;mlmthrow&#39;</span><span class="p">,</span> <span class="s">&#39;database&#39;</span><span class="p">,</span> <span class="s">&#39;date&#39;</span><span class="p">]</span>
+        <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">removekeys</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">__setattr__</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">gdb</span><span class="p">[</span><span class="n">key</span><span class="p">])</span>
+            <span class="n">msids</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
+
+        <span class="c"># MSIDs that have no type will not have any defined limits/expected states (e.g. coscs098s)</span>
+        <span class="k">for</span> <span class="n">msid</span> <span class="ow">in</span> <span class="n">msids</span><span class="p">:</span>
+            <span class="k">if</span> <span class="s">&#39;type&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">gdb</span><span class="p">[</span><span class="n">msid</span><span class="p">]</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                <span class="n">msids</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">msid</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">msids</span>
+
+    <span class="k">def</span> <span class="nf">gen_limit_row_data</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span></div>
+<div class="viewcode-block" id="GLimit.gen_limit_row_data"><a class="viewcode-back" href="../../glimmondb.html#glimmondb.glimmondb.GLimit.gen_limit_row_data">[docs]</a>        <span class="sd">&quot;&quot;&quot; Return a G_LIMMON limit definitions in row format.</span>
+
+<span class="sd">        The returned list will be structured to be compatible with the final sqlite3 limit</span>
+<span class="sd">        definition table.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">limitrowdata</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">msid</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">msids</span><span class="p">:</span>
+            <span class="c">#     print(msid)</span>
+            <span class="n">mdata</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">gdb</span><span class="p">[</span><span class="n">msid</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">mdata</span><span class="p">[</span><span class="s">&#39;type&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">==</span> <span class="s">&#39;limit&#39;</span><span class="p">:</span>
+                <span class="k">for</span> <span class="n">setkey</span> <span class="ow">in</span> <span class="n">mdata</span><span class="p">[</span><span class="s">&#39;setkeys&#39;</span><span class="p">]:</span>
+                    <span class="k">if</span> <span class="n">setkey</span> <span class="ow">in</span> <span class="n">mdata</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                        <span class="n">rowdata</span> <span class="o">=</span> <span class="p">[]</span>
+                        <span class="n">rowdata</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">msid</span><span class="o">.</span><span class="n">lower</span><span class="p">())</span>
+                        <span class="n">rowdata</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">setkey</span><span class="p">)</span>
+                        <span class="n">rowdata</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">datesec</span><span class="p">)</span>
+                        <span class="n">rowdata</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">date</span><span class="p">)</span>
+                        <span class="c"># only want values after decimal point</span>
+                        <span class="n">rowdata</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">revision</span><span class="p">[</span><span class="mi">2</span><span class="p">:]))</span>
+                        <span class="c"># rowdata.append(1) # Active</span>
+
+                        <span class="k">if</span> <span class="s">&#39;mlmenable&#39;</span> <span class="ow">in</span> <span class="n">mdata</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                            <span class="n">rowdata</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">mdata</span><span class="p">[</span><span class="s">&#39;mlmenable&#39;</span><span class="p">])</span>
+                        <span class="k">else</span><span class="p">:</span>
+                            <span class="n">rowdata</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39;1&#39;</span><span class="p">)</span>
+
+                        <span class="k">if</span> <span class="s">&#39;mlmtol&#39;</span> <span class="ow">in</span> <span class="n">mdata</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                            <span class="n">rowdata</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">mdata</span><span class="p">[</span><span class="s">&#39;mlmtol&#39;</span><span class="p">])</span>
+                        <span class="k">else</span><span class="p">:</span>
+                            <span class="n">rowdata</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39;1&#39;</span><span class="p">)</span>
+
+                        <span class="k">if</span> <span class="s">&#39;default&#39;</span> <span class="ow">in</span> <span class="n">mdata</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                            <span class="n">rowdata</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">mdata</span><span class="p">[</span><span class="s">&#39;default&#39;</span><span class="p">])</span>
+                        <span class="k">else</span><span class="p">:</span>
+                            <span class="n">rowdata</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39;0&#39;</span><span class="p">)</span>
+
+                        <span class="k">if</span> <span class="s">&#39;mlimsw&#39;</span> <span class="ow">in</span> <span class="n">mdata</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                            <span class="n">rowdata</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">mdata</span><span class="p">[</span><span class="s">&#39;mlimsw&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">lower</span><span class="p">())</span>
+                        <span class="k">else</span><span class="p">:</span>
+                            <span class="n">rowdata</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39;none&#39;</span><span class="p">)</span>
+
+                        <span class="k">if</span> <span class="s">&#39;caution_high&#39;</span> <span class="ow">in</span> <span class="n">mdata</span><span class="p">[</span><span class="n">setkey</span><span class="p">]</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                            <span class="n">rowdata</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">mdata</span><span class="p">[</span><span class="n">setkey</span><span class="p">][</span><span class="s">&#39;caution_high&#39;</span><span class="p">])</span>
+                        <span class="k">else</span><span class="p">:</span>
+                            <span class="n">rowdata</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39;none&#39;</span><span class="p">)</span>
+
+                        <span class="k">if</span> <span class="s">&#39;caution_low&#39;</span> <span class="ow">in</span> <span class="n">mdata</span><span class="p">[</span><span class="n">setkey</span><span class="p">]</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                            <span class="n">rowdata</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">mdata</span><span class="p">[</span><span class="n">setkey</span><span class="p">][</span><span class="s">&#39;caution_low&#39;</span><span class="p">])</span>
+                        <span class="k">else</span><span class="p">:</span>
+                            <span class="n">rowdata</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39;none&#39;</span><span class="p">)</span>
+
+                        <span class="k">if</span> <span class="s">&#39;warning_high&#39;</span> <span class="ow">in</span> <span class="n">mdata</span><span class="p">[</span><span class="n">setkey</span><span class="p">]</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                            <span class="n">rowdata</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">mdata</span><span class="p">[</span><span class="n">setkey</span><span class="p">][</span><span class="s">&#39;warning_high&#39;</span><span class="p">])</span>
+                        <span class="k">else</span><span class="p">:</span>
+                            <span class="n">rowdata</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39;none&#39;</span><span class="p">)</span>
+
+                        <span class="k">if</span> <span class="s">&#39;warning_low&#39;</span> <span class="ow">in</span> <span class="n">mdata</span><span class="p">[</span><span class="n">setkey</span><span class="p">]</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                            <span class="n">rowdata</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">mdata</span><span class="p">[</span><span class="n">setkey</span><span class="p">][</span><span class="s">&#39;warning_low&#39;</span><span class="p">])</span>
+                        <span class="k">else</span><span class="p">:</span>
+                            <span class="n">rowdata</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39;none&#39;</span><span class="p">)</span>
+
+                        <span class="k">if</span> <span class="s">&#39;switchstate&#39;</span> <span class="ow">in</span> <span class="n">mdata</span><span class="p">[</span><span class="n">setkey</span><span class="p">]</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                            <span class="n">rowdata</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">mdata</span><span class="p">[</span><span class="n">setkey</span><span class="p">][</span><span class="s">&#39;switchstate&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">lower</span><span class="p">())</span>
+                        <span class="k">else</span><span class="p">:</span>
+                            <span class="n">rowdata</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39;none&#39;</span><span class="p">)</span>
+
+                        <span class="n">limitrowdata</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">rowdata</span><span class="p">)</span>
+
+        <span class="c"># Remove disabled MSID rows, this will be taken care of later when these</span>
+        <span class="c"># are found to be missing</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">discard_disabled_sets</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">n</span><span class="p">,</span> <span class="n">row</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">limitrowdata</span><span class="p">):</span>
+                <span class="k">if</span> <span class="nb">int</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="mi">5</span><span class="p">])</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                    <span class="n">_</span> <span class="o">=</span> <span class="n">limitrowdata</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="n">n</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">limitrowdata</span>
+
+    <span class="k">def</span> <span class="nf">gen_state_row_data</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span></div>
+<div class="viewcode-block" id="GLimit.gen_state_row_data"><a class="viewcode-back" href="../../glimmondb.html#glimmondb.glimmondb.GLimit.gen_state_row_data">[docs]</a>        <span class="sd">&quot;&quot;&quot; Return a G_LIMMON expected state definitions in row format.</span>
+
+<span class="sd">        The returned list will be structured to be compatible with the final sqlite3 expected</span>
+<span class="sd">        state definition table.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+
+        <span class="n">esstaterowdata</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">msid</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">msids</span><span class="p">:</span>
+            <span class="n">mdata</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">gdb</span><span class="p">[</span><span class="n">msid</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">mdata</span><span class="p">[</span><span class="s">&#39;type&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">==</span> <span class="s">&#39;expected_state&#39;</span><span class="p">:</span>
+                <span class="k">for</span> <span class="n">setkey</span> <span class="ow">in</span> <span class="n">mdata</span><span class="p">[</span><span class="s">&#39;setkeys&#39;</span><span class="p">]:</span>
+                    <span class="k">if</span> <span class="n">setkey</span> <span class="ow">in</span> <span class="n">mdata</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                        <span class="n">rowdata</span> <span class="o">=</span> <span class="p">[]</span>
+                        <span class="n">rowdata</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">msid</span><span class="o">.</span><span class="n">lower</span><span class="p">())</span>
+                        <span class="n">rowdata</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">setkey</span><span class="p">)</span>
+                        <span class="n">rowdata</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">datesec</span><span class="p">)</span>
+                        <span class="n">rowdata</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">date</span><span class="p">)</span>
+                        <span class="c"># only want values after decimal point</span>
+                        <span class="n">rowdata</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">revision</span><span class="p">[</span><span class="mi">2</span><span class="p">:]))</span>
+                        <span class="c"># rowdata.append(1) # Active</span>
+
+                        <span class="k">if</span> <span class="s">&#39;mlmenable&#39;</span> <span class="ow">in</span> <span class="n">mdata</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                            <span class="n">rowdata</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">mdata</span><span class="p">[</span><span class="s">&#39;mlmenable&#39;</span><span class="p">])</span>
+                        <span class="k">else</span><span class="p">:</span>
+                            <span class="n">rowdata</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39;1&#39;</span><span class="p">)</span>
+
+                        <span class="k">if</span> <span class="s">&#39;mlmtol&#39;</span> <span class="ow">in</span> <span class="n">mdata</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                            <span class="n">rowdata</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">mdata</span><span class="p">[</span><span class="s">&#39;mlmtol&#39;</span><span class="p">])</span>
+                        <span class="k">else</span><span class="p">:</span>
+                            <span class="n">rowdata</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39;1&#39;</span><span class="p">)</span>
+
+                        <span class="k">if</span> <span class="s">&#39;default&#39;</span> <span class="ow">in</span> <span class="n">mdata</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                            <span class="n">rowdata</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">mdata</span><span class="p">[</span><span class="s">&#39;default&#39;</span><span class="p">])</span>
+                        <span class="k">else</span><span class="p">:</span>
+                            <span class="n">rowdata</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39;0&#39;</span><span class="p">)</span>
+
+                        <span class="k">if</span> <span class="s">&#39;mlimsw&#39;</span> <span class="ow">in</span> <span class="n">mdata</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                            <span class="n">rowdata</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">mdata</span><span class="p">[</span><span class="s">&#39;mlimsw&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">lower</span><span class="p">())</span>
+                        <span class="k">else</span><span class="p">:</span>
+                            <span class="n">rowdata</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39;none&#39;</span><span class="p">)</span>
+
+                        <span class="k">if</span> <span class="s">&#39;expst&#39;</span> <span class="ow">in</span> <span class="n">mdata</span><span class="p">[</span><span class="n">setkey</span><span class="p">]</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                            <span class="n">rowdata</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">mdata</span><span class="p">[</span><span class="n">setkey</span><span class="p">][</span><span class="s">&#39;expst&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">lower</span><span class="p">())</span>
+                        <span class="k">else</span><span class="p">:</span>
+                            <span class="n">rowdata</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39;none&#39;</span><span class="p">)</span>
+
+                        <span class="k">if</span> <span class="s">&#39;switchstate&#39;</span> <span class="ow">in</span> <span class="n">mdata</span><span class="p">[</span><span class="n">setkey</span><span class="p">]</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                            <span class="n">rowdata</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">mdata</span><span class="p">[</span><span class="n">setkey</span><span class="p">][</span><span class="s">&#39;switchstate&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">lower</span><span class="p">())</span>
+                        <span class="k">else</span><span class="p">:</span>
+                            <span class="n">rowdata</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39;none&#39;</span><span class="p">)</span>
+
+                        <span class="n">esstaterowdata</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">rowdata</span><span class="p">)</span>
+
+        <span class="c"># Remove disabled MSID rows, this will be marked as disabled later when</span>
+        <span class="c"># these are found to be missing</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">discard_disabled_sets</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">n</span><span class="p">,</span> <span class="n">row</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">esstaterowdata</span><span class="p">):</span>
+                <span class="k">if</span> <span class="nb">int</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="mi">5</span><span class="p">])</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                    <span class="n">_</span> <span class="o">=</span> <span class="n">esstaterowdata</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="n">n</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">esstaterowdata</span>
+
+    <span class="k">def</span> <span class="nf">write_limit_row_data</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">limitrowdata</span><span class="p">):</span></div>
+<div class="viewcode-block" id="GLimit.write_limit_row_data"><a class="viewcode-back" href="../../glimmondb.html#glimmondb.glimmondb.GLimit.write_limit_row_data">[docs]</a>        <span class="sd">&quot;&quot;&quot; Write limit table to file.</span>
+
+<span class="sd">        This is used for debugging purposes.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">fid</span> <span class="o">=</span> <span class="nb">open</span><span class="p">(</span><span class="s">&#39;limitrowdata_{}.txt&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">revision</span><span class="p">[</span><span class="mi">2</span><span class="p">:]),</span> <span class="s">&#39;w&#39;</span><span class="p">)</span>
+        <span class="n">fid</span><span class="o">.</span><span class="n">writelines</span><span class="p">([</span><span class="s">&#39;,&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">([</span><span class="nb">str</span><span class="p">(</span><span class="n">s</span><span class="p">)</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">row</span><span class="p">])</span> <span class="o">+</span> <span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span> <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">limitrowdata</span><span class="p">])</span>
+        <span class="n">fid</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">write_state_row_data</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">esstaterowdata</span><span class="p">):</span></div>
+<div class="viewcode-block" id="GLimit.write_state_row_data"><a class="viewcode-back" href="../../glimmondb.html#glimmondb.glimmondb.GLimit.write_state_row_data">[docs]</a>        <span class="sd">&quot;&quot;&quot; Write expected state table to file.</span>
+
+<span class="sd">        This is used for debugging purposes.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">fid</span> <span class="o">=</span> <span class="nb">open</span><span class="p">(</span><span class="s">&#39;esstaterowdata_{}.txt&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">revision</span><span class="p">[</span><span class="mi">2</span><span class="p">:]),</span> <span class="s">&#39;w&#39;</span><span class="p">)</span>
+        <span class="n">fid</span><span class="o">.</span><span class="n">writelines</span><span class="p">([</span><span class="s">&#39;,&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">([</span><span class="nb">str</span><span class="p">(</span><span class="n">s</span><span class="p">)</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">row</span><span class="p">])</span> <span class="o">+</span> <span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span> <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">esstaterowdata</span><span class="p">])</span>
+        <span class="n">fid</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+
+<span class="k">class</span> <span class="nc">NewLimitDB</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span></div></div>
+<div class="viewcode-block" id="NewLimitDB"><a class="viewcode-back" href="../../glimmondb.html#glimmondb.glimmondb.NewLimitDB">[docs]</a>
+    <span class="sd">&quot;&quot;&quot; Create a G_LIMMON based sqlite3 database.</span>
+
+<span class="sd">    This writes the G_LIMMON data formatted using the GLimit class to an sqlite3 database file.</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">limitrowdata</span><span class="p">,</span> <span class="n">esstaterowdata</span><span class="p">,</span> <span class="n">version</span><span class="p">,</span> <span class="n">date</span><span class="p">,</span> <span class="n">datesec</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot; Create Sqlite3 database for limits, expected states, and version information.</span>
+
+<span class="sd">        :param limitrowdata: List of limit definitions, each row defines limits for one msid/set</span>
+<span class="sd">        :param esstaterowdata: List of state definitions, each row defines states for one msid/set</span>
+<span class="sd">        :param version: GLIMMON version for data in limitrowdata and esstaterowdata</span>
+<span class="sd">        :param date: Date in HOSC format corresponding to the version number</span>
+<span class="sd">        :param datesec: Date in seconds from &#39;1997:365:23:58:56.816&#39; format</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">temp_filename</span> <span class="o">=</span> <span class="n">pathjoin</span><span class="p">(</span><span class="n">DBDIR</span><span class="p">,</span> <span class="s">&#39;temporary_db.sqlite3&#39;</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">shutil</span><span class="o">.</span><span class="n">rmtree</span><span class="p">(</span><span class="n">temp_filename</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
+            <span class="k">pass</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">db</span> <span class="o">=</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="n">temp_filename</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">create_limit_table</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">fill_limit_data</span><span class="p">(</span><span class="n">limitrowdata</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">create_esstate_table</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">fill_esstate_data</span><span class="p">(</span><span class="n">esstaterowdata</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">create_version_table</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">fill_version_data</span><span class="p">(</span><span class="n">version</span><span class="p">,</span> <span class="n">date</span><span class="p">,</span> <span class="n">datesec</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">__enter__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span>
+
+    <span class="k">def</span> <span class="nf">__exit__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">type</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">traceback</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">db</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">create_limit_table</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<div class="viewcode-block" id="NewLimitDB.create_limit_table"><a class="viewcode-back" href="../../glimmondb.html#glimmondb.glimmondb.NewLimitDB.create_limit_table">[docs]</a>        <span class="n">cursor</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">db</span><span class="o">.</span><span class="n">cursor</span><span class="p">()</span>
+        <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;&quot;&quot;DROP TABLE IF EXISTS limits&quot;&quot;&quot;</span><span class="p">)</span>
+        <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;&quot;&quot;CREATE TABLE limits(id INTEGER PRIMARY KEY, msid TEXT, setkey INTEGER, datesec REAL,</span>
+<span class="s">                          date TEXT, modversion INTEGER, mlmenable INTEGER, mlmtol INTEGER,</span>
+<span class="s">                          default_set INTEGER, mlimsw TEXT, caution_high REAL, caution_low REAL, warning_high REAL, </span>
+<span class="s">                          warning_low REAL, switchstate TEXT)&quot;&quot;&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">db</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">create_esstate_table</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span></div>
+<div class="viewcode-block" id="NewLimitDB.create_esstate_table"><a class="viewcode-back" href="../../glimmondb.html#glimmondb.glimmondb.NewLimitDB.create_esstate_table">[docs]</a>        <span class="n">cursor</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">db</span><span class="o">.</span><span class="n">cursor</span><span class="p">()</span>
+        <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;&quot;&quot;DROP TABLE IF EXISTS expected_states&quot;&quot;&quot;</span><span class="p">)</span>
+        <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;&quot;&quot;CREATE TABLE expected_states(id INTEGER PRIMARY KEY, msid TEXT, setkey INTEGER, </span>
+<span class="s">                          datesec REAL, date TEXT, modversion INTEGER, mlmenable INTEGER, </span>
+<span class="s">                          mlmtol INTEGER, default_set INTEGER, mlimsw TEXT, expst TEXT, switchstate TEXT)&quot;&quot;&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">db</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">fill_limit_data</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">limitrowdata</span><span class="p">):</span></div>
+<div class="viewcode-block" id="NewLimitDB.fill_limit_data"><a class="viewcode-back" href="../../glimmondb.html#glimmondb.glimmondb.NewLimitDB.fill_limit_data">[docs]</a>        <span class="n">cursor</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">db</span><span class="o">.</span><span class="n">cursor</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">limitrowdata</span><span class="p">:</span>
+            <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;&quot;&quot;INSERT INTO limits(msid, setkey, datesec, date, modversion, mlmenable, mlmtol, </span>
+<span class="s">                              default_set, mlimsw, caution_high, caution_low, warning_high, warning_low, </span>
+<span class="s">                              switchstate) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)&quot;&quot;&quot;</span><span class="p">,</span> <span class="n">row</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">db</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">fill_esstate_data</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">esstaterowdata</span><span class="p">):</span></div>
+<div class="viewcode-block" id="NewLimitDB.fill_esstate_data"><a class="viewcode-back" href="../../glimmondb.html#glimmondb.glimmondb.NewLimitDB.fill_esstate_data">[docs]</a>        <span class="n">cursor</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">db</span><span class="o">.</span><span class="n">cursor</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">esstaterowdata</span><span class="p">:</span>
+            <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;&quot;&quot;INSERT INTO expected_states(msid, setkey, datesec, date, modversion, mlmenable, </span>
+<span class="s">                              mlmtol, default_set, mlimsw, expst, switchstate) VALUES(?,?,?,?,?,?,?,?,?,?,?)&quot;&quot;&quot;</span><span class="p">,</span> <span class="n">row</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">db</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">create_version_table</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span></div>
+<div class="viewcode-block" id="NewLimitDB.create_version_table"><a class="viewcode-back" href="../../glimmondb.html#glimmondb.glimmondb.NewLimitDB.create_version_table">[docs]</a>        <span class="n">cursor</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">db</span><span class="o">.</span><span class="n">cursor</span><span class="p">()</span>
+        <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;&quot;&quot;DROP TABLE IF EXISTS versions&quot;&quot;&quot;</span><span class="p">)</span>
+        <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span>
+            <span class="sd">&quot;&quot;&quot;CREATE TABLE versions(id INTEGER PRIMARY KEY, version INTEGER UNIQUE, datesec REAL UNIQUE, date TEXT UNIQUE)&quot;&quot;&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">db</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">fill_version_data</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">version</span><span class="p">,</span> <span class="n">date</span><span class="p">,</span> <span class="n">datesec</span><span class="p">):</span></div>
+<div class="viewcode-block" id="NewLimitDB.fill_version_data"><a class="viewcode-back" href="../../glimmondb.html#glimmondb.glimmondb.NewLimitDB.fill_version_data">[docs]</a>        <span class="n">cursor</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">db</span><span class="o">.</span><span class="n">cursor</span><span class="p">()</span>
+        <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span>
+            <span class="sd">&quot;&quot;&quot;INSERT INTO versions(version, datesec, date) VALUES(?,?,?)&quot;&quot;&quot;</span><span class="p">,</span> <span class="p">(</span><span class="n">version</span><span class="p">,</span> <span class="n">datesec</span><span class="p">,</span> <span class="n">date</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">db</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
+
+
+<span class="k">def</span> <span class="nf">raise_tabletype_error</span><span class="p">(</span><span class="n">tabletype</span><span class="p">):</span></div></div>
+<div class="viewcode-block" id="raise_tabletype_error"><a class="viewcode-back" href="../../glimmondb.html#glimmondb.glimmondb.raise_tabletype_error">[docs]</a>    <span class="sd">&quot;&quot;&quot; Raise error if table name does not match either &#39;limit&#39; or &#39;expected_state&#39;.</span>
+
+<span class="sd">    :param tabletype: Name of table (i.e. type of table) that was attempted</span>
+<span class="sd">    :raises ValueError: when wrong table name/type was attempted </span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">s1</span> <span class="o">=</span> <span class="s">&quot;Argument &#39;tabletype&#39; is entered as {}&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">tabletype</span><span class="p">)</span>
+    <span class="n">s2</span> <span class="o">=</span> <span class="s">&quot;, should be either &#39;limit&#39; or &#39;expected_state&#39;&quot;</span>
+    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;{}{}&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">s1</span><span class="p">,</span> <span class="n">s2</span><span class="p">))</span>
+
+
+<span class="k">def</span> <span class="nf">query_all_cols_one_row_to_copy</span><span class="p">(</span><span class="n">db</span><span class="p">,</span> <span class="n">msidset</span><span class="p">,</span> <span class="n">tabletype</span><span class="p">):</span></div>
+<div class="viewcode-block" id="query_all_cols_one_row_to_copy"><a class="viewcode-back" href="../../glimmondb.html#glimmondb.glimmondb.query_all_cols_one_row_to_copy">[docs]</a>    <span class="sd">&quot;&quot;&quot; Return all columns for most recently defined limit or expected state data.</span>
+
+<span class="sd">    :param db: sqlite3 database connection</span>
+<span class="sd">    :param msidset: list containing msidname and set number</span>
+<span class="sd">    :param tabletype: &#39;limit&#39; or &#39;expected_state&#39;</span>
+
+<span class="sd">    :returns: list of column data for most recently defined limit or expected state data</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">cursor</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">cursor</span><span class="p">()</span>
+    <span class="k">if</span> <span class="n">tabletype</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">==</span> <span class="s">&#39;limit&#39;</span><span class="p">:</span>
+        <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;&quot;&quot;SELECT a.msid, a.setkey, a.datesec, a.date, a.modversion, a.mlmenable, a.mlmtol, a.default_set,</span>
+<span class="s">                          a.mlimsw, a.caution_high, a.caution_low, a.warning_high, a.warning_low, a.switchstate FROM limits AS a </span>
+<span class="s">                          WHERE a.modversion = (SELECT MAX(b.modversion) FROM limits AS b </span>
+<span class="s">                          WHERE a.msid=b.msid AND b.msid=? AND a.setkey=b.setkey and b.setkey=?) &quot;&quot;&quot;</span><span class="p">,</span> <span class="n">msidset</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="n">tabletype</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">==</span> <span class="s">&#39;expected_state&#39;</span><span class="p">:</span>
+        <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;&quot;&quot;SELECT a.msid, a.setkey, a.datesec, a.date, a.modversion, a.mlmenable, a.mlmtol, a.default_set,</span>
+<span class="s">                          a.mlimsw, a.expst, a.switchstate FROM expected_states AS a </span>
+<span class="s">                          WHERE a.modversion = (SELECT MAX(b.modversion) FROM expected_states AS b </span>
+<span class="s">                          WHERE a.msid=b.msid AND b.msid=? AND a.setkey=b.setkey and b.setkey=?) &quot;&quot;&quot;</span><span class="p">,</span> <span class="n">msidset</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">raise_tabletype_error</span><span class="p">(</span><span class="n">tabletype</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">cursor</span><span class="o">.</span><span class="n">fetchone</span><span class="p">()</span>
+
+
+<span class="k">def</span> <span class="nf">query_most_recent_msids_sets</span><span class="p">(</span><span class="n">db</span><span class="p">,</span> <span class="n">tabletype</span><span class="p">):</span></div>
+<div class="viewcode-block" id="query_most_recent_msids_sets"><a class="viewcode-back" href="../../glimmondb.html#glimmondb.glimmondb.query_most_recent_msids_sets">[docs]</a>    <span class="sd">&quot;&quot;&quot; Return all msid/set pairs defined in a table.</span>
+
+<span class="sd">    :param db: sqlite3 database connection</span>
+<span class="sd">    :param tabletype: &#39;limit&#39; or &#39;expected_state&#39;</span>
+
+<span class="sd">    :returns: list of all msid/set pairs defined in a table.</span>
+
+<span class="sd">    The database qurey code below selects the most recent disabled pair only as a way to filter</span>
+<span class="sd">    out repeated data.</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">cursor</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">cursor</span><span class="p">()</span>
+    <span class="k">if</span> <span class="n">tabletype</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">==</span> <span class="s">&#39;limit&#39;</span><span class="p">:</span>
+        <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;&quot;&quot;SELECT a.msid, a.setkey FROM limits AS a </span>
+<span class="s">                          WHERE a.modversion = (SELECT MAX(b.modversion) FROM limits AS b</span>
+<span class="s">                          WHERE a.msid = b.msid and a.setkey = b.setkey) &quot;&quot;&quot;</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="n">tabletype</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">==</span> <span class="s">&#39;expected_state&#39;</span><span class="p">:</span>
+        <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;&quot;&quot;SELECT a.msid, a.setkey FROM expected_states AS a </span>
+<span class="s">                          WHERE a.modversion = (SELECT MAX(b.modversion) FROM expected_states AS b</span>
+<span class="s">                          WHERE a.msid = b.msid and a.setkey = b.setkey) &quot;&quot;&quot;</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">raise_tabletype_error</span><span class="p">(</span><span class="n">tabletype</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">cursor</span><span class="o">.</span><span class="n">fetchall</span><span class="p">()</span>
+
+
+<span class="k">def</span> <span class="nf">query_most_recent_disabled_msids_sets</span><span class="p">(</span><span class="n">db</span><span class="p">,</span> <span class="n">tabletype</span><span class="p">):</span></div>
+<div class="viewcode-block" id="query_most_recent_disabled_msids_sets"><a class="viewcode-back" href="../../glimmondb.html#glimmondb.glimmondb.query_most_recent_disabled_msids_sets">[docs]</a>    <span class="sd">&quot;&quot;&quot; Return all msid/set pairs that have ever been disabled.</span>
+
+<span class="sd">    :param db: sqlite3 database connection</span>
+<span class="sd">    :param tabletype: &#39;limit&#39; or &#39;expected_state&#39;</span>
+
+<span class="sd">    :returns: list of all msid/set pairs that have ever been disabled. </span>
+
+<span class="sd">    The database qurey code below selects the most recent disabled pair only as a way to filter</span>
+<span class="sd">    out repeated data.</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">cursor</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">cursor</span><span class="p">()</span>
+    <span class="k">if</span> <span class="n">tabletype</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">==</span> <span class="s">&#39;limit&#39;</span><span class="p">:</span>
+        <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;&quot;&quot;SELECT a.msid, a.setkey FROM limits AS a WHERE a.mlmenable = 0 AND</span>
+<span class="s">                          a.modversion = (SELECT MAX(b.modversion) FROM limits AS b</span>
+<span class="s">                          WHERE a.msid = b.msid and a.setkey = b.setkey) &quot;&quot;&quot;</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="n">tabletype</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">==</span> <span class="s">&#39;expected_state&#39;</span><span class="p">:</span>
+        <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;&quot;&quot;SELECT a.msid, a.setkey FROM expected_states AS a WHERE a.mlmenable = 0 AND</span>
+<span class="s">                          a.modversion = (SELECT MAX(b.modversion) FROM expected_states AS b</span>
+<span class="s">                          WHERE a.msid = b.msid and a.setkey = b.setkey) &quot;&quot;&quot;</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">raise_tabletype_error</span><span class="p">(</span><span class="n">tabletype</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">cursor</span><span class="o">.</span><span class="n">fetchall</span><span class="p">()</span>
+
+
+<span class="k">def</span> <span class="nf">query_most_recent_changeable_data</span><span class="p">(</span><span class="n">db</span><span class="p">,</span> <span class="n">tabletype</span><span class="p">):</span></div>
+<div class="viewcode-block" id="query_most_recent_changeable_data"><a class="viewcode-back" href="../../glimmondb.html#glimmondb.glimmondb.query_most_recent_changeable_data">[docs]</a>    <span class="sd">&quot;&quot;&quot; Return modifiable columns for limits or expected states for all msid set pairs.</span>
+
+<span class="sd">    :param db: sqlite3 database connection</span>
+<span class="sd">    :param tabletype: &#39;limit&#39; or &#39;expected_state&#39;</span>
+
+<span class="sd">    :returns: modifiable columns for limits or expected states for all msid set pairs.</span>
+
+<span class="sd">    The only columns that are omitted are the date, datesec, and modversion columns which are not</span>
+<span class="sd">    edited by a standard user in the G_LIMMON file. This function returns the most recently</span>
+<span class="sd">    defined rows regardless as to whether or not an msid/set pair have been disabled.</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">cursor</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">cursor</span><span class="p">()</span>
+    <span class="k">if</span> <span class="n">tabletype</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">==</span> <span class="s">&#39;limit&#39;</span><span class="p">:</span>
+        <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;&quot;&quot;SELECT a.msid, a.setkey, a.mlmenable, a.mlmtol, a.default_set, a.mlimsw, a.caution_high, </span>
+<span class="s">                          a.caution_low, a.warning_high, a.warning_low, a.switchstate FROM limits AS a </span>
+<span class="s">                          WHERE a.modversion = (SELECT MAX(b.modversion) FROM limits AS b</span>
+<span class="s">                          WHERE a.msid = b.msid and a.setkey = b.setkey) &quot;&quot;&quot;</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="n">tabletype</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">==</span> <span class="s">&#39;expected_state&#39;</span><span class="p">:</span>
+        <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;&quot;&quot;SELECT a.msid, a.setkey, a.mlmenable, a.mlmtol, a.default_set, a.mlimsw, a.expst, a.switchstate </span>
+<span class="s">                          FROM expected_states AS a </span>
+<span class="s">                          WHERE a.modversion = (SELECT MAX(b.modversion) FROM expected_states AS b</span>
+<span class="s">                          WHERE a.msid = b.msid and a.setkey = b.setkey) &quot;&quot;&quot;</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">raise_tabletype_error</span><span class="p">(</span><span class="n">tabletype</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">cursor</span><span class="o">.</span><span class="n">fetchall</span><span class="p">()</span>
+
+
+<span class="k">def</span> <span class="nf">commit_new_rows</span><span class="p">(</span><span class="n">db</span><span class="p">,</span> <span class="n">rows</span><span class="p">,</span> <span class="n">tabletype</span><span class="p">):</span></div>
+<div class="viewcode-block" id="commit_new_rows"><a class="viewcode-back" href="../../glimmondb.html#glimmondb.glimmondb.commit_new_rows">[docs]</a>    <span class="sd">&quot;&quot;&quot; Commit new limit table or expected state table rows to an sqlite3 database.</span>
+
+<span class="sd">    :param db: sqlite3 database connection</span>
+<span class="sd">    :param rows: list of rows to be added to an sqlite3 table</span>
+<span class="sd">    :param tabletype: &#39;limit&#39; or &#39;expected_state&#39;</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">oldcursor</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">cursor</span><span class="p">()</span>
+    <span class="k">if</span> <span class="n">tabletype</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">==</span> <span class="s">&#39;limit&#39;</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">rows</span><span class="p">:</span>
+            <span class="n">oldcursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;&quot;&quot;INSERT INTO limits(msid, setkey, datesec, date, modversion, mlmenable, mlmtol,</span>
+<span class="s">                                 default_set, mlimsw, caution_high, caution_low, warning_high, warning_low, switchstate) </span>
+<span class="s">                                 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)&quot;&quot;&quot;</span><span class="p">,</span> <span class="n">row</span><span class="p">)</span>
+            <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&#39;    Added new row:{}.&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">row</span><span class="p">))</span>
+
+    <span class="k">elif</span> <span class="n">tabletype</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">==</span> <span class="s">&#39;expected_state&#39;</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">rows</span><span class="p">:</span>
+            <span class="n">oldcursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;&quot;&quot;INSERT INTO expected_states(msid, setkey, datesec, date, modversion, mlmenable, </span>
+<span class="s">                                 mlmtol, default_set, mlimsw, expst, switchstate) VALUES(?,?,?,?,?,?,?,?,?,?,?)&quot;&quot;&quot;</span><span class="p">,</span> <span class="n">row</span><span class="p">)</span>
+            <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&#39;    Added new row:{}.&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">row</span><span class="p">))</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">raise_tabletype_error</span><span class="p">(</span><span class="n">tabletype</span><span class="p">)</span>
+
+    <span class="n">db</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
+
+
+<span class="k">def</span> <span class="nf">commit_new_version_row</span><span class="p">(</span><span class="n">olddb</span><span class="p">,</span> <span class="n">newdb</span><span class="p">):</span></div>
+<div class="viewcode-block" id="commit_new_version_row"><a class="viewcode-back" href="../../glimmondb.html#glimmondb.glimmondb.commit_new_version_row">[docs]</a>    <span class="sd">&quot;&quot;&quot; Commit new version table row to an sqlite3 database.</span>
+
+<span class="sd">    :param olddb: sqlite3 database connection for old database (current database to be updated)</span>
+<span class="sd">    :param newdb: sqlite3 database connection for new database (sqlite version of newest G_LIMMON)</span>
+
+<span class="sd">    This is similar to &quot;commit_new_rows()&quot; but updates only the &quot;version&quot; table to keep track of</span>
+<span class="sd">    the history of G_LIMMON versions added to the database.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">newcursor</span> <span class="o">=</span> <span class="n">newdb</span><span class="o">.</span><span class="n">cursor</span><span class="p">()</span>
+    <span class="n">data</span> <span class="o">=</span> <span class="n">newcursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;&quot;&quot;SELECT version, datesec, date FROM versions&quot;&quot;&quot;</span><span class="p">)</span>
+    <span class="n">version</span><span class="p">,</span> <span class="n">datesec</span><span class="p">,</span> <span class="n">date</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">fetchone</span><span class="p">()</span>
+
+    <span class="n">oldcursor</span> <span class="o">=</span> <span class="n">olddb</span><span class="o">.</span><span class="n">cursor</span><span class="p">()</span>
+    <span class="n">oldcursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span>
+        <span class="sd">&quot;&quot;&quot;INSERT INTO versions(version, datesec, date) VALUES(?,?,?)&quot;&quot;&quot;</span><span class="p">,</span> <span class="p">(</span><span class="n">version</span><span class="p">,</span> <span class="n">datesec</span><span class="p">,</span> <span class="n">date</span><span class="p">))</span>
+    <span class="n">olddb</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
+
+
+<span class="k">def</span> <span class="nf">add_merge_logging_text</span><span class="p">(</span><span class="n">tabletype</span><span class="p">,</span> <span class="n">functiontype</span><span class="p">,</span> <span class="n">newlen</span><span class="p">,</span> <span class="n">oldlen</span><span class="p">,</span> <span class="n">addlen</span><span class="p">):</span></div>
+<div class="viewcode-block" id="add_merge_logging_text"><a class="viewcode-back" href="../../glimmondb.html#glimmondb.glimmondb.add_merge_logging_text">[docs]</a>    <span class="sd">&quot;&quot;&quot; Add Merge Operation Logging.</span>
+
+<span class="sd">    :param tabletype: either &#39;limit&#39; or &#39;expected_state&#39;</span>
+<span class="sd">    :param functiontype: either &#39;added&#39;, &#39;deactivated&#39;, or &#39;modified&#39;</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">formatted_tabletype</span> <span class="o">=</span> <span class="s">&#39; &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">([</span><span class="n">s</span><span class="o">.</span><span class="n">capitalize</span><span class="p">()</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">tabletype</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;_&#39;</span><span class="p">)])</span>
+    <span class="n">formatted_functiontype</span> <span class="o">=</span> <span class="n">functiontype</span><span class="o">.</span><span class="n">capitalize</span><span class="p">()</span>
+    <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&#39;========== Comparing New and Current {}s Table For {} MSID Sets ==========&#39;</span>
+                 <span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">formatted_tabletype</span><span class="p">,</span> <span class="n">formatted_functiontype</span><span class="p">))</span>
+    <span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;Number of {} rows in new DB:{}.&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">formatted_tabletype</span><span class="p">,</span> <span class="n">newlen</span><span class="p">))</span>
+    <span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;Number of {} rows in current DB:{}.&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">formatted_tabletype</span><span class="p">,</span> <span class="n">oldlen</span><span class="p">))</span>
+    <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&#39;Number of rows to be {} for newly added msid sets: {}.&#39;</span>
+                 <span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">formatted_functiontype</span><span class="p">,</span> <span class="n">addlen</span><span class="p">))</span>
+    <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&#39;---------- Append Rows For {} MSID Sets ----------&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">formatted_tabletype</span><span class="p">))</span>
+
+
+<span class="k">def</span> <span class="nf">merge_added_msidsets</span><span class="p">(</span><span class="n">newdb</span><span class="p">,</span> <span class="n">olddb</span><span class="p">,</span> <span class="n">tabletype</span><span class="p">):</span></div>
+<div class="viewcode-block" id="merge_added_msidsets"><a class="viewcode-back" href="../../glimmondb.html#glimmondb.glimmondb.merge_added_msidsets">[docs]</a>    <span class="sd">&quot;&quot;&quot; Merge new/modified data to the current database.</span>
+
+<span class="sd">    :param olddb: sqlite3 database connection for old database (current database to be updated)</span>
+<span class="sd">    :param newdb: sqlite3 database connection for new database (sqlite version of newest G_LIMMON)</span>
+<span class="sd">    :param tabletype: type of table (&#39;limit&#39; or &#39;expected_state&#39;)</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">all_new_rows</span> <span class="o">=</span> <span class="n">query_most_recent_msids_sets</span><span class="p">(</span><span class="n">newdb</span><span class="p">,</span> <span class="n">tabletype</span><span class="p">)</span>
+    <span class="n">all_old_rows</span> <span class="o">=</span> <span class="n">query_most_recent_msids_sets</span><span class="p">(</span><span class="n">olddb</span><span class="p">,</span> <span class="n">tabletype</span><span class="p">)</span>
+
+    <span class="c"># what is in newrows but not in oldrows</span>
+    <span class="n">not_in_oldrows</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">all_new_rows</span><span class="p">)</span><span class="o">.</span><span class="n">difference</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="n">all_old_rows</span><span class="p">))</span>
+    <span class="n">addrows</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">msidset</span> <span class="ow">in</span> <span class="n">not_in_oldrows</span><span class="p">:</span>
+        <span class="n">addrow</span> <span class="o">=</span> <span class="n">query_all_cols_one_row_to_copy</span><span class="p">(</span><span class="n">newdb</span><span class="p">,</span> <span class="n">msidset</span><span class="p">,</span> <span class="n">tabletype</span><span class="p">)</span>
+        <span class="n">addrows</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">addrow</span><span class="p">)</span>
+
+    <span class="n">add_merge_logging_text</span><span class="p">(</span><span class="n">tabletype</span><span class="p">,</span> <span class="s">&#39;added&#39;</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">all_new_rows</span><span class="p">),</span> <span class="nb">len</span><span class="p">(</span><span class="n">all_old_rows</span><span class="p">),</span> <span class="nb">len</span><span class="p">(</span><span class="n">addrows</span><span class="p">))</span>
+    <span class="n">commit_new_rows</span><span class="p">(</span><span class="n">olddb</span><span class="p">,</span> <span class="n">addrows</span><span class="p">,</span> <span class="n">tabletype</span><span class="p">)</span>
+
+
+<span class="k">def</span> <span class="nf">merge_deleted_msidsets</span><span class="p">(</span><span class="n">newdb</span><span class="p">,</span> <span class="n">olddb</span><span class="p">,</span> <span class="n">tabletype</span><span class="p">):</span></div>
+<div class="viewcode-block" id="merge_deleted_msidsets"><a class="viewcode-back" href="../../glimmondb.html#glimmondb.glimmondb.merge_deleted_msidsets">[docs]</a>    <span class="sd">&quot;&quot;&quot; Find newly deleted/disabled msids and add new rows indicating the change in status to db.</span>
+
+<span class="sd">    :param newdb: Database object for new G_LIMMON</span>
+<span class="sd">    :param olddb: Database object for current database</span>
+<span class="sd">    :param tabletype: type of table (&#39;limit&#39; or &#39;expected_state&#39;)</span>
+
+<span class="sd">    All disabled msids are removed from the new G_LIMMON when read in. This means that there needs</span>
+<span class="sd">    to be several steps to determine which msids/sets are newly deleted.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">newcursor</span> <span class="o">=</span> <span class="n">newdb</span><span class="o">.</span><span class="n">cursor</span><span class="p">()</span>
+    <span class="n">data</span> <span class="o">=</span> <span class="n">newcursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;&quot;&quot;SELECT version, datesec, date FROM versions&quot;&quot;&quot;</span><span class="p">)</span>
+    <span class="n">version</span><span class="p">,</span> <span class="n">datesec</span><span class="p">,</span> <span class="n">date</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">fetchone</span><span class="p">()</span>
+
+    <span class="n">all_new_rows</span> <span class="o">=</span> <span class="n">query_most_recent_msids_sets</span><span class="p">(</span><span class="n">newdb</span><span class="p">,</span> <span class="n">tabletype</span><span class="p">)</span>
+    <span class="n">all_old_rows</span> <span class="o">=</span> <span class="n">query_most_recent_msids_sets</span><span class="p">(</span><span class="n">olddb</span><span class="p">,</span> <span class="n">tabletype</span><span class="p">)</span>
+    <span class="n">all_old_disabled_rows</span> <span class="o">=</span> <span class="n">query_most_recent_disabled_msids_sets</span><span class="p">(</span><span class="n">olddb</span><span class="p">,</span> <span class="n">tabletype</span><span class="p">)</span>
+
+    <span class="n">disabled_not_in_newrows</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">all_old_disabled_rows</span><span class="p">)</span><span class="o">.</span><span class="n">difference</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="n">all_new_rows</span><span class="p">))</span>
+    <span class="n">all_new_rows</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="nb">list</span><span class="p">(</span><span class="n">disabled_not_in_newrows</span><span class="p">))</span>
+
+    <span class="c"># what is in oldrows but not in newrows</span>
+    <span class="n">not_in_newrows</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">all_old_rows</span><span class="p">)</span><span class="o">.</span><span class="n">difference</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="n">all_new_rows</span><span class="p">))</span>
+    <span class="n">deactivaterows</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">msidset</span> <span class="ow">in</span> <span class="n">not_in_newrows</span><span class="p">:</span>
+        <span class="n">deactrow</span> <span class="o">=</span> <span class="n">query_all_cols_one_row_to_copy</span><span class="p">(</span><span class="n">olddb</span><span class="p">,</span> <span class="n">msidset</span><span class="p">,</span> <span class="n">tabletype</span><span class="p">)</span>
+        <span class="n">deactrow</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">deactrow</span><span class="p">)</span>
+        <span class="n">deactrow</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span> <span class="o">=</span> <span class="n">datesec</span>
+        <span class="n">deactrow</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span> <span class="o">=</span> <span class="n">date</span>
+        <span class="n">deactrow</span><span class="p">[</span><span class="mi">4</span><span class="p">]</span> <span class="o">=</span> <span class="n">version</span>
+        <span class="n">deactrow</span><span class="p">[</span><span class="mi">5</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="n">deactivaterows</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">tuple</span><span class="p">(</span><span class="n">deactrow</span><span class="p">))</span>
+
+    <span class="n">add_merge_logging_text</span><span class="p">(</span><span class="n">tabletype</span><span class="p">,</span> <span class="s">&#39;deactivated&#39;</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span>
+        <span class="n">all_new_rows</span><span class="p">),</span> <span class="nb">len</span><span class="p">(</span><span class="n">all_old_rows</span><span class="p">),</span> <span class="nb">len</span><span class="p">(</span><span class="n">deactivaterows</span><span class="p">))</span>
+    <span class="n">commit_new_rows</span><span class="p">(</span><span class="n">olddb</span><span class="p">,</span> <span class="n">deactivaterows</span><span class="p">,</span> <span class="n">tabletype</span><span class="p">)</span>
+
+
+<span class="k">def</span> <span class="nf">merge_modified_msidsets</span><span class="p">(</span><span class="n">newdb</span><span class="p">,</span> <span class="n">olddb</span><span class="p">,</span> <span class="n">tabletype</span><span class="p">):</span></div>
+<div class="viewcode-block" id="merge_modified_msidsets"><a class="viewcode-back" href="../../glimmondb.html#glimmondb.glimmondb.merge_modified_msidsets">[docs]</a>    <span class="sd">&quot;&quot;&quot; Find newly modified msids and add new rows indicating the change in status/info to db.</span>
+
+<span class="sd">    :param newdb: Database object for new G_LIMMON</span>
+<span class="sd">    :param olddb: Database object for current database</span>
+<span class="sd">    :param tabletype: type of table (&#39;limit&#39; or &#39;expected_state&#39;)</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">all_new_rows</span> <span class="o">=</span> <span class="n">query_most_recent_changeable_data</span><span class="p">(</span><span class="n">newdb</span><span class="p">,</span> <span class="n">tabletype</span><span class="p">)</span>
+    <span class="n">all_old_rows</span> <span class="o">=</span> <span class="n">query_most_recent_changeable_data</span><span class="p">(</span><span class="n">olddb</span><span class="p">,</span> <span class="n">tabletype</span><span class="p">)</span>
+
+    <span class="c"># what is in newrows but not in oldrows</span>
+    <span class="n">modified_rows</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">all_new_rows</span><span class="p">)</span><span class="o">.</span><span class="n">difference</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="n">all_old_rows</span><span class="p">))</span>
+    <span class="n">modrows</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">newcursor</span> <span class="o">=</span> <span class="n">newdb</span><span class="o">.</span><span class="n">cursor</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">msidset</span> <span class="ow">in</span> <span class="n">modified_rows</span><span class="p">:</span>
+        <span class="n">modrow</span> <span class="o">=</span> <span class="n">query_all_cols_one_row_to_copy</span><span class="p">(</span><span class="n">newdb</span><span class="p">,</span> <span class="n">msidset</span><span class="p">[:</span><span class="mi">2</span><span class="p">],</span> <span class="n">tabletype</span><span class="p">)</span>
+        <span class="n">modrows</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">modrow</span><span class="p">)</span>
+
+    <span class="n">add_merge_logging_text</span><span class="p">(</span>
+        <span class="n">tabletype</span><span class="p">,</span> <span class="s">&#39;modified&#39;</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">all_new_rows</span><span class="p">),</span> <span class="nb">len</span><span class="p">(</span><span class="n">all_old_rows</span><span class="p">),</span> <span class="nb">len</span><span class="p">(</span><span class="n">modrows</span><span class="p">))</span>
+    <span class="n">commit_new_rows</span><span class="p">(</span><span class="n">olddb</span><span class="p">,</span> <span class="n">modrows</span><span class="p">,</span> <span class="n">tabletype</span><span class="p">)</span>
+
+
+<span class="k">def</span> <span class="nf">create_db</span><span class="p">(</span><span class="n">gdb</span><span class="p">,</span> <span class="n">discard_disabled_sets</span><span class="o">=</span><span class="bp">True</span><span class="p">):</span></div>
+<div class="viewcode-block" id="create_db"><a class="viewcode-back" href="../../glimmondb.html#glimmondb.glimmondb.create_db">[docs]</a>    <span class="sd">&quot;&quot;&quot; Create new sqlite3 database based on a G_LIMMON definition.</span>
+
+<span class="sd">    :param gdb: Dictionary containing a G_LIMMON definition</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">g</span> <span class="o">=</span> <span class="n">GLimit</span><span class="p">(</span><span class="n">gdb</span><span class="p">,</span> <span class="n">discard_disabled_sets</span><span class="p">)</span>
+    <span class="n">esstaterowdata2</span> <span class="o">=</span> <span class="n">g</span><span class="o">.</span><span class="n">gen_state_row_data</span><span class="p">()</span>
+    <span class="n">limitrowdata2</span> <span class="o">=</span> <span class="n">g</span><span class="o">.</span><span class="n">gen_limit_row_data</span><span class="p">()</span>
+    <span class="n">version</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="nb">unicode</span><span class="p">(</span><span class="n">gdb</span><span class="p">[</span><span class="s">&#39;revision&#39;</span><span class="p">])[</span><span class="mi">2</span><span class="p">:])</span>
+    <span class="n">newdb_obj</span> <span class="o">=</span> <span class="n">NewLimitDB</span><span class="p">(</span><span class="n">limitrowdata2</span><span class="p">,</span> <span class="n">esstaterowdata2</span><span class="p">,</span> <span class="n">version</span><span class="p">,</span> <span class="n">g</span><span class="o">.</span><span class="n">date</span><span class="p">,</span> <span class="n">g</span><span class="o">.</span><span class="n">datesec</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">newdb_obj</span><span class="o">.</span><span class="n">db</span>
+
+
+<span class="k">def</span> <span class="nf">recreate_db</span><span class="p">(</span><span class="n">archive_directory</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span></div>
+<div class="viewcode-block" id="recreate_db"><a class="viewcode-back" href="../../glimmondb.html#glimmondb.glimmondb.recreate_db">[docs]</a>    <span class="sd">&quot;&quot;&quot; Recreate the G_LIMMON history sqlite3 database from all G_LIMMON.dec past versions.</span>
+
+<span class="sd">    :param archive_directory: Directory of G_LIMMON.dec files</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="kn">from</span> <span class="nn">operator</span> <span class="kn">import</span> <span class="n">itemgetter</span>
+    <span class="kn">import</span> <span class="nn">glob</span>
+
+    <span class="k">if</span> <span class="n">archive_directory</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">archive_directory</span> <span class="o">=</span> <span class="n">DBDIR</span>
+
+    <span class="k">def</span> <span class="nf">write_initial_db</span><span class="p">(</span><span class="n">gdb</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot; Write Initial DB to Disk</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+
+        <span class="k">def</span> <span class="nf">copy_anything</span><span class="p">(</span><span class="n">src</span><span class="p">,</span> <span class="n">dst</span><span class="p">):</span>
+            <span class="sd">&quot;&quot;&quot; Copied from Stackoverflow</span>
+
+<span class="sd">            http://stackoverflow.com/questions/1994488/copy-file-or-directory-in-python</span>
+<span class="sd">            &quot;&quot;&quot;</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">shutil</span><span class="o">.</span><span class="n">copytree</span><span class="p">(</span><span class="n">src</span><span class="p">,</span> <span class="n">dst</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>  <span class="c"># python &gt;2.5</span>
+                <span class="k">if</span> <span class="n">exc</span><span class="o">.</span><span class="n">errno</span> <span class="o">==</span> <span class="n">errno</span><span class="o">.</span><span class="n">ENOTDIR</span><span class="p">:</span>
+                    <span class="n">shutil</span><span class="o">.</span><span class="n">copy</span><span class="p">(</span><span class="n">src</span><span class="p">,</span> <span class="n">dst</span><span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="k">raise</span>
+
+        <span class="n">newdb</span> <span class="o">=</span> <span class="n">create_db</span><span class="p">(</span><span class="n">gdb</span><span class="p">,</span> <span class="n">discard_disabled_sets</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+        <span class="n">newdb</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="n">temp_filename</span> <span class="o">=</span> <span class="n">pathjoin</span><span class="p">(</span><span class="n">DBDIR</span><span class="p">,</span> <span class="s">&#39;temporary_db.sqlite3&#39;</span><span class="p">)</span>
+        <span class="n">db_filename</span> <span class="o">=</span> <span class="n">pathjoin</span><span class="p">(</span><span class="n">DBDIR</span><span class="p">,</span> <span class="s">&#39;glimmondb.sqlite3&#39;</span><span class="p">)</span>
+        <span class="n">copy_anything</span><span class="p">(</span><span class="n">temp_filename</span><span class="p">,</span> <span class="n">db_filename</span><span class="p">)</span>
+
+        <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+            <span class="s">&#39;========================= glimmondb.sqlite3 Initialized =========================</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">get_glimmon_arch_filenames</span><span class="p">():</span>
+        <span class="n">glimmon_files</span> <span class="o">=</span> <span class="n">glob</span><span class="o">.</span><span class="n">glob</span><span class="p">(</span><span class="n">pathjoin</span><span class="p">(</span><span class="n">archive_directory</span><span class="p">,</span> <span class="s">&quot;G_LIMMON_2.*.dec&quot;</span><span class="p">))</span>
+        <span class="k">return</span> <span class="n">glimmon_files</span>
+
+    <span class="k">def</span> <span class="nf">get_glimmon_versions</span><span class="p">(</span><span class="n">glimmon_files</span><span class="p">):</span>
+
+        <span class="n">filename_rev_pattern</span> <span class="o">=</span> <span class="s">&quot;G_LIMMON_([0-9]+).([0-9]+).dec&quot;</span>
+        <span class="n">versions</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">filename</span> <span class="ow">in</span> <span class="n">glimmon_files</span><span class="p">:</span>
+            <span class="n">rev</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">findall</span><span class="p">(</span><span class="n">filename_rev_pattern</span><span class="p">,</span> <span class="n">filename</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="n">versions</span><span class="o">.</span><span class="n">append</span><span class="p">([</span><span class="nb">int</span><span class="p">(</span><span class="n">n</span><span class="p">)</span> <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">rev</span><span class="p">])</span>
+
+        <span class="k">return</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">versions</span><span class="p">,</span> <span class="n">key</span><span class="o">=</span><span class="n">itemgetter</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span>
+
+    <span class="n">filename</span> <span class="o">=</span> <span class="n">pathjoin</span><span class="p">(</span><span class="n">archive_directory</span><span class="p">,</span> <span class="s">&quot;G_LIMMON_P007A.dec&quot;</span><span class="p">)</span>
+    <span class="n">g</span> <span class="o">=</span> <span class="n">read_glimmon</span><span class="p">(</span><span class="n">filename</span><span class="p">)</span>
+    <span class="n">g</span><span class="p">[</span><span class="s">&#39;revision&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;2.0&#39;</span>
+
+    <span class="n">tdbfile</span> <span class="o">=</span> <span class="n">pathjoin</span><span class="p">(</span><span class="n">TDBDIR</span><span class="p">,</span> <span class="s">&#39;tdb_all.pkl&#39;</span><span class="p">)</span>
+    <span class="n">tdbs</span> <span class="o">=</span> <span class="n">pickle</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="nb">open</span><span class="p">(</span><span class="n">tdbfile</span><span class="p">,</span> <span class="s">&#39;r&#39;</span><span class="p">))</span>
+    <span class="n">tdb</span> <span class="o">=</span> <span class="n">get_tdb</span><span class="p">(</span><span class="n">tdbs</span><span class="p">,</span> <span class="n">g</span><span class="p">[</span><span class="s">&#39;revision&#39;</span><span class="p">][</span><span class="mi">2</span><span class="p">:])</span>
+
+    <span class="k">for</span> <span class="n">msid</span> <span class="ow">in</span> <span class="n">g</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+        <span class="n">update_msid</span><span class="p">(</span><span class="n">msid</span><span class="o">.</span><span class="n">lower</span><span class="p">(),</span> <span class="n">tdb</span><span class="p">,</span> <span class="n">g</span><span class="p">)</span>
+
+    <span class="n">write_initial_db</span><span class="p">(</span><span class="n">g</span><span class="p">)</span>
+
+    <span class="n">glimmon_files</span> <span class="o">=</span> <span class="n">get_glimmon_arch_filenames</span><span class="p">()</span>
+    <span class="n">revisions</span> <span class="o">=</span> <span class="n">get_glimmon_versions</span><span class="p">(</span><span class="n">glimmon_files</span><span class="p">)</span>
+
+    <span class="k">for</span> <span class="n">rev</span> <span class="ow">in</span> <span class="n">revisions</span><span class="p">:</span>
+        <span class="k">print</span><span class="p">(</span><span class="s">&quot;Importing revision {}-{}&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">rev</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">rev</span><span class="p">[</span><span class="mi">1</span><span class="p">]))</span>
+        <span class="n">gfile</span> <span class="o">=</span> <span class="n">pathjoin</span><span class="p">(</span><span class="n">archive_directory</span><span class="p">,</span> <span class="s">&quot;G_LIMMON_{}.{}.dec&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">rev</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">rev</span><span class="p">[</span><span class="mi">1</span><span class="p">]))</span>
+        <span class="n">merge_new_glimmon_to_db</span><span class="p">(</span><span class="n">gfile</span><span class="p">,</span> <span class="n">tdbs</span><span class="p">)</span>
+
+
+<span class="k">def</span> <span class="nf">merge_new_glimmon_to_db</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="n">tdbs</span><span class="p">):</span></div>
+<div class="viewcode-block" id="merge_new_glimmon_to_db"><a class="viewcode-back" href="../../glimmondb.html#glimmondb.glimmondb.merge_new_glimmon_to_db">[docs]</a>    <span class="sd">&quot;&quot;&quot; Merge a new G_LIMMON.dec file into the sqlite3 database.</span>
+
+<span class="sd">    :param filename: Full path + filename for new G_LIMMON.dec file</span>
+<span class="sd">    :param tdbs: Dictionary containing data from all TDB versions</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">g</span> <span class="o">=</span> <span class="n">read_glimmon</span><span class="p">(</span><span class="n">filename</span><span class="p">)</span>
+
+    <span class="n">tdb</span> <span class="o">=</span> <span class="n">get_tdb</span><span class="p">(</span><span class="n">tdbs</span><span class="p">,</span> <span class="n">g</span><span class="p">[</span><span class="s">&#39;revision&#39;</span><span class="p">][</span><span class="mi">2</span><span class="p">:])</span>
+    <span class="k">for</span> <span class="n">msid</span> <span class="ow">in</span> <span class="n">g</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+        <span class="n">update_msid</span><span class="p">(</span><span class="n">msid</span><span class="o">.</span><span class="n">lower</span><span class="p">(),</span> <span class="n">tdb</span><span class="p">,</span> <span class="n">g</span><span class="p">)</span>
+
+    <span class="n">newver</span> <span class="o">=</span> <span class="n">g</span><span class="p">[</span><span class="s">&#39;revision&#39;</span><span class="p">][</span><span class="mi">2</span><span class="p">:]</span>
+
+    <span class="n">glimmondb_filename</span> <span class="o">=</span> <span class="n">pathjoin</span><span class="p">(</span><span class="n">DBDIR</span><span class="p">,</span> <span class="s">&#39;glimmondb.sqlite3&#39;</span><span class="p">)</span>
+    <span class="n">olddb</span> <span class="o">=</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="n">glimmondb_filename</span><span class="p">)</span>
+    <span class="n">oldcursor</span> <span class="o">=</span> <span class="n">olddb</span><span class="o">.</span><span class="n">cursor</span><span class="p">()</span>
+    <span class="n">oldcursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;&quot;&quot;SELECT MAX(version) FROM versions&quot;&quot;&quot;</span><span class="p">)</span>
+    <span class="n">oldver</span> <span class="o">=</span> <span class="n">oldcursor</span><span class="o">.</span><span class="n">fetchone</span><span class="p">()[</span><span class="mi">0</span><span class="p">]</span>
+
+    <span class="n">textinsert</span> <span class="o">=</span> <span class="s">&#39;Comparing New (v{}) and Current (v{}) G_LIMMON Databases&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">newver</span><span class="p">,</span> <span class="n">oldver</span><span class="p">)</span>
+    <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&#39;&#39;</span><span class="p">)</span>
+    <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&#39;                        ========== {} ==========&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">textinsert</span><span class="p">))</span>
+
+    <span class="n">newdb</span> <span class="o">=</span> <span class="n">create_db</span><span class="p">(</span><span class="n">g</span><span class="p">)</span>
+
+    <span class="c"># Limit Table Comparison/Merge</span>
+    <span class="n">merge_added_msidsets</span><span class="p">(</span><span class="n">newdb</span><span class="p">,</span> <span class="n">olddb</span><span class="p">,</span> <span class="s">&#39;limit&#39;</span><span class="p">)</span>
+    <span class="n">merge_deleted_msidsets</span><span class="p">(</span><span class="n">newdb</span><span class="p">,</span> <span class="n">olddb</span><span class="p">,</span> <span class="s">&#39;limit&#39;</span><span class="p">)</span>
+    <span class="n">merge_modified_msidsets</span><span class="p">(</span><span class="n">newdb</span><span class="p">,</span> <span class="n">olddb</span><span class="p">,</span> <span class="s">&#39;limit&#39;</span><span class="p">)</span>
+
+    <span class="c"># Expected State Table Comparison/Merge</span>
+    <span class="n">merge_added_msidsets</span><span class="p">(</span><span class="n">newdb</span><span class="p">,</span> <span class="n">olddb</span><span class="p">,</span> <span class="s">&#39;expected_state&#39;</span><span class="p">)</span>
+    <span class="n">merge_deleted_msidsets</span><span class="p">(</span><span class="n">newdb</span><span class="p">,</span> <span class="n">olddb</span><span class="p">,</span> <span class="s">&#39;expected_state&#39;</span><span class="p">)</span>
+    <span class="n">merge_modified_msidsets</span><span class="p">(</span><span class="n">newdb</span><span class="p">,</span> <span class="n">olddb</span><span class="p">,</span> <span class="s">&#39;expected_state&#39;</span><span class="p">)</span>
+
+    <span class="n">commit_new_version_row</span><span class="p">(</span><span class="n">olddb</span><span class="p">,</span> <span class="n">newdb</span><span class="p">)</span>
+
+    <span class="n">newdb</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+    <span class="n">olddb</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+    <span class="n">temp_filename</span> <span class="o">=</span> <span class="n">pathjoin</span><span class="p">(</span><span class="n">DBDIR</span><span class="p">,</span> <span class="s">&#39;temporary_db.sqlite3&#39;</span><span class="p">)</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">shutil</span><span class="o">.</span><span class="n">rmtree</span><span class="p">(</span><span class="n">temp_filename</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
+        <span class="k">pass</span>
+</pre></div></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper"><div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../../index.html">Documentation overview</a><ul>
+  <li><a href="../index.html">Module code</a><ul>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Author.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.6</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

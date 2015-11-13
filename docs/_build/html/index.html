@@ -1,0 +1,160 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>Documentation for the glimmondb package &mdash; glimmondb  documentation</title>
+    
+    <link rel="stylesheet" href="_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    './',
+        VERSION:     '',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <link rel="top" title="glimmondb  documentation" href="#" />
+    <link rel="next" title="glimmondb package" href="glimmondb.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <div class="section" id="documentation-for-the-glimmondb-package">
+<h1>Documentation for the glimmondb package<a class="headerlink" href="#documentation-for-the-glimmondb-package" title="Permalink to this headline">¶</a></h1>
+<p>Contents:</p>
+<div class="toctree-wrapper compound">
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="glimmondb.html">glimmondb package</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="glimmondb.html#submodules">Submodules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="glimmondb.html#module-glimmondb.glimmondb">glimmondb.glimmondb module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="glimmondb.html#module-glimmondb.version">glimmondb.version module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="glimmondb.html#module-glimmondb">Module contents</a></li>
+</ul>
+</li>
+</ul>
+</div>
+</div>
+<div class="section" id="setup-instructions">
+<h1>Setup Instructions<a class="headerlink" href="#setup-instructions" title="Permalink to this headline">¶</a></h1>
+<p>Add this to your .bashrc file or the equivalent to your .cshrc file:</p>
+<div class="highlight-python"><div class="highlight"><pre>export SKA_DATA=/proj/sot/ska/data
+</pre></div>
+</div>
+<p>The use of local directories is supported with the additional definition of two environment
+variables. These are <code class="docutils literal"><span class="pre">GLIMMONDATA</span></code> and <code class="docutils literal"><span class="pre">TBDDATA</span></code>. Defining these environment variables will
+override the <code class="docutils literal"><span class="pre">SKA_DATA</span></code> variable, so only use them when you need a local version, such as for
+testing.</p>
+<p>To point to a local version of the glimmon database, or to generate a new local version of this
+database, set the <code class="docutils literal"><span class="pre">GLIMMONDATA</span></code> environment variable to point to the directory of choice. This
+can be done from within Python using the following code as an example, with the appropriate
+directory substituted:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="kn">import</span> <span class="nn">os</span>
+<span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s">&quot;GLIMMONDATA&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&quot;/home/username/AXAFAUTO/glimmon_archive&quot;</span>
+</pre></div>
+</div>
+<p>If you are generating a new version from scratch, remember to copy over all previous versions of
+the G_LIMMON.dec file from <code class="docutils literal"><span class="pre">/proj/sot/ska/data/glimmon_archive/</span></code> to your local working directory.
+<code class="docutils literal"><span class="pre">glimmondb</span></code> will use this directory to look for the <code class="docutils literal"><span class="pre">G_LIMMON.dec</span></code> historical list of files as
+well as to store the generated SQLite 3 file and log file. If you copy these files from elsewhere,
+you may run into several bugs in how the <code class="docutils literal"><span class="pre">G_LIMMON.dec</span></code> file was originally written (such as
+missing or mistyped information). There were several files that needed minor editing to ensure they
+could be properly imported. There were no edits that changed the intended function of
+<code class="docutils literal"><span class="pre">G_LIMMON.dec</span></code>.</p>
+<p>If you wish to also use a local version of the TDB, define the TDBDATA environment variable using
+the following code as an example:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s">&quot;TDBDATA&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&quot;/home/username/AXAFAUTO/tdb_archive&quot;</span>
+</pre></div>
+</div>
+<p>The TDB archive is generated by exporting the database tables from the .mdb file to csv files and
+converting all text to lower case. Certain files pertaining to limit and expected state definitions
+are then imported and saved to json and pickle files. Please see the
+<code class="docutils literal"><span class="pre">/proj/sot/ska/data/fot_tdb_archive</span></code> directory for an example.</p>
+</div>
+<div class="section" id="indices-and-tables">
+<h1>Indices and tables<a class="headerlink" href="#indices-and-tables" title="Permalink to this headline">¶</a></h1>
+<ul class="simple">
+<li><a class="reference internal" href="genindex.html"><span>Index</span></a></li>
+<li><a class="reference internal" href="py-modindex.html"><span>Module Index</span></a></li>
+<li><a class="reference internal" href="search.html"><span>Search Page</span></a></li>
+</ul>
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+  <h3><a href="#">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#">Documentation for the glimmondb package</a></li>
+<li><a class="reference internal" href="#setup-instructions">Setup Instructions</a></li>
+<li><a class="reference internal" href="#indices-and-tables">Indices and tables</a></li>
+</ul>
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="#">Documentation overview</a><ul>
+      <li>Next: <a href="glimmondb.html" title="next chapter">glimmondb package</a></li>
+  </ul></li>
+</ul>
+</div>
+  <div role="note" aria-label="source link">
+    <h3>This Page</h3>
+    <ul class="this-page-menu">
+      <li><a href="_sources/index.txt"
+            rel="nofollow">Show Source</a></li>
+    </ul>
+   </div>
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Author.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.6</a>
+      
+      |
+      <a href="_sources/index.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>
