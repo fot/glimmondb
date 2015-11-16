@@ -13,6 +13,16 @@ Contents:
 
    glimmondb
 
+
+Introduction
+============
+
+This package produces an SQLite 3 database of all limits and expected states defined in
+G_LIMMON.dec for all versions of G_LIMMON back to and including version 2.1. This database can be
+used to query the entire limit/expected state history of each msid ever included in the production
+G_LIMMON.dec file. Please note that this database is currently a beta release so there may be bugs.
+
+
 Setup Instructions
 ==================
 
@@ -54,8 +64,252 @@ are then imported and saved to json and pickle files. Please see the
 ``/proj/sot/ska/data/fot_tdb_archive`` directory for an example.
 
 
-Indices and tables
-==================
+Database Generation
+===================
+
+To generate the database from scratch for testing, set the GLIMMONDATA to a working directory you
+have write access to, which also should contain all historical G_LIMMON.dec files. In production,
+this environment variable definition should not be necessary as the location will default to
+``/proj/sot/ska/data/glimmon_archive``. The following commands will generate the database locally,
+with the correct working directory substituted::
+
+    import os
+    import glimmondb
+    os.environ["GLIMMONDATA"] = "/home/username/glimmon_working_directory"
+    glimmondb.recreate_db()
+
+
+File Organization
+=================
+
+Notes
+-----
+
+ - This database includes three tables; "limits", "expected states", and "versions".
+ - Each table is made up of a number of rows which represent one limit or expected state for a 
+   given MSID and set pair.
+ - Some MSIDs have more than one limit set or expected state set, however only one of these sets 
+   will be applicable at any given time. In the case where an MSID has multiple limit or expected 
+   state sets, the set that is active always depends on the state of another MSID, and is given its 
+   own number (in ``G_LIMMON.dec``) so that a given MSID and set number together define a unique 
+   condition.
+ - MSIDs are imported as they are defined by their limits/expected states in ``G_LIMMON.dec``, 
+   including derived parameters, they do not need to be present in the TDB.
+ - The equations used to define derived parameters in each ``G_LIMMON.dec`` file are ignored.
+ - TDB limits and expected states are filled in where they are not explicitly specified in 
+   ``G_LIMMON.dec``.
+ - Each row added to either the limits or expected states tables represents a change to the 
+   database that occurred after the initial production version of ``G_LIMMON.dec``. Previously 
+   added rows are never modified or deleted from the database. This ensures there is a complete 
+   record of all changes made to ``G_LIMMON.dec``.
+ - The versions table includes a list of each version of ``G_LIMMON.dec`` along with the date 
+   each ``G_LIMMON.dec`` file was promoted to production status. This date is pulled from the 
+   date defined in each ``G_LIMMON.dec`` file after the "$Date" tag.
+ - The comments section at the top of each ``G_LIMMON.dec``.dec file is completely ignored.
+
+Table Definitions
+-----------------
+
+.. table:: **Limit Table** 
+
+    +--------------+--------------------+------------------------------------------------------------+
+    | Column       | SQLite Data Type   | Limits Table Column Definitions                            |
+    +==============+====================+============================================================+
+    | id           | Integer            | Unique identifier used by the database.                    |
+    +--------------+--------------------+------------------------------------------------------------+
+    | msid         | Text               | MSID Name.                                                 |
+    +--------------+--------------------+------------------------------------------------------------+
+    | setkey       | Integer            | Set number allocated to each MSID in G_LIMMON.dec.         |
+    +--------------+--------------------+------------------------------------------------------------+
+    | date         | Text               | Date (YYYY-MM-DD hh:mm:ss.ss) when each MSID/set pair      |
+    |              |                    | (row) was added/modified/deleted in G_LIMMON.dec.          |
+    +--------------+--------------------+------------------------------------------------------------+
+    | datesec      | Real               | Date in seconds from 1997:365:23:58:56.816 (epoch for Ska  |
+    |              |                    | environment).                                              |
+    +--------------+--------------------+------------------------------------------------------------+
+    | modversion   | Integer            | Version each MSID/set pair was added under, corresponds to |
+    |              |                    | date and datesec columns.                                  |
+    +--------------+--------------------+------------------------------------------------------------+
+    | mlmenable    | Integer            | 0 or 1 indicating whether or not the MSID/set pair is      |
+    |              |                    | active from that point forward. 0 means the pair is        |
+    |              |                    | deactivated. An MSID can be deactivated explicitly in      |
+    |              |                    | G_LIMMON using the "MLMENABLE 0" syntax or implicitly by   |
+    |              |                    | deleting the msid/set pair from G_LIMMON.                  |
+    +--------------+--------------------+------------------------------------------------------------+
+    | mlmtol       | Integer            | Limit glitch tolerance (e.g. a value of two requires the   |
+    |              |                    | MSID to be outside of its limits for two updates before    |
+    |              |                    | being flagged as a violation).                             |
+    +--------------+--------------------+------------------------------------------------------------+
+    | default_set  | Integer            | The default limit set to be used for each MSID, can only   |
+    |              |                    | be 1+ when additional sets are defined.                    |
+    +--------------+--------------------+------------------------------------------------------------+
+    | mlimsw       | Text               | MSID used to switch limit sets.                            |
+    +--------------+--------------------+------------------------------------------------------------+
+    | switchstate  | Text               | State for MSID defined in mlimsw that corresponds to the   |
+    |              |                    | limit set defined in the same row.                         |
+    +--------------+--------------------+------------------------------------------------------------+
+    | warning_low  | Real               | Warning (red) lower limit.                                 |
+    +--------------+--------------------+------------------------------------------------------------+
+    | caution_low  | Real               | Caution (yellow) lower limit.                              |
+    +--------------+--------------------+------------------------------------------------------------+
+    | caution_high | Real               | Caution (yellow) upper limit.                              |
+    +--------------+--------------------+------------------------------------------------------------+
+    | warning_high | Real               | Warning (red) upper limit.                                 |
+    +--------------+--------------------+------------------------------------------------------------+
+
+|
+
+.. table:: **Expected State Table** 
+
+    +-------------+--------------------+-------------------------------------------------------------+
+    | Column      | SQLite Data Type   | Expected States Table Column Definitions                    |
+    +=============+====================+=============================================================+
+    | id          | Integer            | Unique identifier used by the database.                     |
+    +-------------+--------------------+-------------------------------------------------------------+
+    | msid        | Text               | MSID Name.                                                  |
+    +-------------+--------------------+-------------------------------------------------------------+
+    | setkey      | Integer            | Set number allocated to each MSID in G_LIMMON.dec.          |
+    +-------------+--------------------+-------------------------------------------------------------+
+    | date        | Text               | Date (YYYY-MM-DD hh:mm:ss.ss) when each MSID/set pair (row) |
+    |             |                    | was added/modified/deleted in G_LIMMON.dec.                 |
+    +-------------+--------------------+-------------------------------------------------------------+
+    | datesec     | Integer            | Date in seconds from 1997:365:23:58:56.816 (epoch for Ska   |
+    |             |                    | environment).                                               |
+    +-------------+--------------------+-------------------------------------------------------------+
+    | modversion  | Integer            | Version each MSID/set pair was added under, corresponds to  |
+    |             |                    | date and datesec columns.                                   |
+    +-------------+--------------------+-------------------------------------------------------------+
+    | mlmenable   | Integer            | 0 or 1 indicating whether or not the MSID/set pair is       |
+    |             |                    | active from that point forward. 0 means the pair is         |
+    |             |                    | deactivated. An MSID can be deactivated explicitly in       |
+    |             |                    | G_LIMMON using the "MLMENABLE 0" syntax or implicitly by    |
+    |             |                    | deleting the msid/set pair from G_LIMMON.                   |
+    +-------------+--------------------+-------------------------------------------------------------+
+    | mlmtol      | Integer            | Glitch tolerance (e.g. a value of two requires the MSID to  |
+    |             |                    | be outside of its limits for two updates before being       |
+    |             |                    | flagged as a violation).                                    |
+    +-------------+--------------------+-------------------------------------------------------------+
+    | default_set | Integer            | The default expected state set to be used for each MSID,    |
+    |             |                    | can only be 1+ when additional sets are defined.            |
+    +-------------+--------------------+-------------------------------------------------------------+
+    | mlimsw      | Text               | MSID used to switch expected state sets.                    |
+    +-------------+--------------------+-------------------------------------------------------------+
+    | switchstate | Text               | State for MSID defined in mlimsw that corresponds to the    |
+    |             |                    | expected state set defined in the same row.                 |
+    +-------------+--------------------+-------------------------------------------------------------+
+    | expst       | Text               | Expected state.                                             |
+    +-------------+--------------------+-------------------------------------------------------------+
+
+|
+
+.. table:: **Version Table** 
+
+    +----------+--------------------+----------------------------------------------------------------+
+    | Column   | SQLite Data Type   | Versions Table Column Definitions                              |
+    +==========+====================+================================================================+
+    | id       | Integer            | Unique identifier used by the database.                        |
+    +----------+--------------------+----------------------------------------------------------------+
+    | version  | Integer            | G_LIMMON version imported to the database, as specified by the |
+    |          |                    | "$Revision" tag in each G_LIMMON file.                         |
+    +----------+--------------------+----------------------------------------------------------------+
+    | date     | Text               | Date (YYYY-MM-DD hh:mm:ss.ss) when each version of G_LIMMON    |
+    |          |                    | was promoted to production status.                             |
+    +----------+--------------------+----------------------------------------------------------------+
+    | datesec  | Real               | Date in seconds from 1997:365:23:58:56.816 (epoch for Ska      |
+    |          |                    | environment).                                                  |
+    +----------+--------------------+----------------------------------------------------------------+
+
+|
+
+
+
+
+
+
+Examples
+========
+
+One does not need to import the ``glimmondb`` package to access the SQLite 3 database; only the
+SQLite 3 package is required. The following examples should provide a good introduction on how
+to access this database using Python, however use of Python is not necessary to access this
+database.
+
+Query the most recent (maximum) version of G_LIMMON added to the database::
+
+    import sqlite3
+    db = sqlite3.connect('glimmondb.sqlite3')
+    cursor = db.cursor()
+    cursor.execute('''SELECT MAX(version) FROM versions''')
+    ver = cursor.fetchone()[0]
+
+
+Query all rows corresponding to one MSID::
+
+    import sqlite3
+    db = sqlite3.connect('glimmondb.sqlite3')
+    cursor = db.cursor()
+    cursor.execute('''SELECT * FROM limits WHERE msid='tcylaft6' ''')
+    allrows = cursor.fetchall()
+
+
+Query the most recently defined limits for all such MSIDs ever defined in G_LIMMON, including
+those limit MSIDs which have been disabled::
+
+    import sqlite3
+    db = sqlite3.connect('glimmondb.sqlite3')
+    cursor = db.cursor()
+    cursor.execute('''SELECT a.msid, a.setkey, a.caution_high, 
+                      a.caution_low, a.warning_high, a.warning_low FROM 
+                      limits AS a WHERE a.modversion = (
+                      SELECT MAX(b.modversion) FROM limits AS b WHERE 
+                      a.msid = b.msid and a.setkey = b.setkey) ''')
+    current_limits = cursor.fetchall()
+
+
+Query the most recently defined limits for one MSID, including it's enabled/disabled (mlmenable)
+state:: 
+
+    import sqlite3
+    db = sqlite3.connect('glimmondb.sqlite3')
+    cursor = db.cursor()
+    cursor.execute('''SELECT a.msid, a.setkey, a.mlmenable, a.caution_high,
+                      a.caution_low, a.warning_high, a.warning_low FROM 
+                      limits AS a  WHERE a.msid='tephin' AND a.modversion 
+                      = (SELECT MAX(b.modversion) FROM limits AS b WHERE 
+                      b.msid=a.msid) ''')
+    current_limits = cursor.fetchall()
+
+
+Query the most recently defined expected states for all such MSIDs ever defined in G_LIMMON,
+including those state MSIDs which have been disabled:: 
+
+    import sqlite3
+    db = sqlite3.connect('glimmondb.sqlite3')
+    cursor = db.cursor()
+    cursor.execute('''SELECT a.msid, a.setkey, a.expst FROM expected_states
+                      AS a WHERE a.modversion = (SELECT MAX(b.modversion)
+                      FROM expected_states AS b WHERE a.msid = b.msid and 
+                      a.setkey = b.setkey) ''')
+    current_expected_states = cursor.fetchall()
+
+
+Query the most recently defined expected state for one MSID, including it's enabled/disabled 
+(mlmenable) state::
+
+    import sqlite3
+    db = sqlite3.connect('glimmondb.sqlite3')
+    cursor = db.cursor()
+    cursor.execute('''SELECT a.msid, a.setkey, a.mlmenable, a.expst FROM 
+                      expected_states AS a WHERE a.msid='ebt2rly3' AND 
+                      a.modversion = (SELECT MAX(b.modversion) FROM 
+                      expected_states AS b WHERE b.msid=a.msid) ''')
+    current_expected_states = cursor.fetchall()
+
+
+
+
+Indices
+=======
 
 * :ref:`genindex`
 * :ref:`modindex`
