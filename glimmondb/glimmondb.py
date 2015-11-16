@@ -12,14 +12,18 @@ reload(logging)  # avoids issue with ipython notebook
 
 from Chandra.Time import DateTime
 
-if getenv('GLIMMONDATA') and getenv('TBDDATA'):
+if getenv('GLIMMONDATA'):
     DBDIR = getenv('GLIMMONDATA')
-    TDBDIR = getenv('TBDDATA')
 elif getenv('SKA_DATA'):
     DBDIR = pathjoin(getenv('SKA_DATA'), 'glimmon_archive/')
-    TDBDIR = pathjoin(getenv('SKA_DATA'), 'fot_tdb_archive/')
 else:
     DBDIR = getcwd()
+
+if getenv('TBDDATA'):
+    TDBDIR = getenv('TBDDATA')
+elif getenv('SKA_DATA'):
+    TDBDIR = pathjoin(getenv('SKA_DATA'), 'fot_tdb_archive/')
+else:
     TDBDIR = getcwd()
 
 logfile = pathjoin(DBDIR, 'DB_Commit.log')
@@ -928,18 +932,13 @@ def create_db(gdb, discard_disabled_sets=True):
     return newdb_obj.db
 
 
-def recreate_db(archive_directory=None):
+def recreate_db():
     """ Recreate the G_LIMMON history sqlite3 database from all G_LIMMON.dec past versions.
-
-    :param archive_directory: Directory of G_LIMMON.dec files
 
     """
 
     from operator import itemgetter
     import glob
-
-    if archive_directory is None:
-        archive_directory = DBDIR
 
     def write_initial_db(gdb):
         """ Write Initial DB to Disk
@@ -968,7 +967,7 @@ def recreate_db(archive_directory=None):
             '========================= glimmondb.sqlite3 Initialized =========================\n')
 
     def get_glimmon_arch_filenames():
-        glimmon_files = glob.glob(pathjoin(archive_directory, "G_LIMMON_2.*.dec"))
+        glimmon_files = glob.glob(pathjoin(DBDIR, "G_LIMMON_2.*.dec"))
         return glimmon_files
 
     def get_glimmon_versions(glimmon_files):
@@ -981,7 +980,7 @@ def recreate_db(archive_directory=None):
 
         return sorted(versions, key=itemgetter(0, 1))
 
-    filename = pathjoin(archive_directory, "G_LIMMON_P007A.dec")
+    filename = pathjoin(DBDIR, "G_LIMMON_P007A.dec")
     g = read_glimmon(filename)
     g['revision'] = '2.0'
 
@@ -999,7 +998,7 @@ def recreate_db(archive_directory=None):
 
     for rev in revisions:
         print("Importing revision {}-{}".format(rev[0], rev[1]))
-        gfile = pathjoin(archive_directory, "G_LIMMON_{}.{}.dec".format(rev[0], rev[1]))
+        gfile = pathjoin(DBDIR, "G_LIMMON_{}.{}.dec".format(rev[0], rev[1]))
         merge_new_glimmon_to_db(gfile, tdbs)
 
 
