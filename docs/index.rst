@@ -236,6 +236,9 @@ Python. When using Python to access this database, the ``glimmondb`` package is 
 the ``sqlite3`` package is required. This database should also be accessible outside of Python using
 any standard method of accessing an SQLite 3 file.
 
+These examples assume you are working in the directory where a copy of the ``glimmondb.sqlite3``
+file exists. Otherwise you will need to incorporate the correct path into the filename.
+
 
 Query the most recent (maximum) version of G_LIMMON added to the database::
 
@@ -255,22 +258,24 @@ Query all rows corresponding to one MSID::
     allrows = cursor.fetchall()
 
 
-Query the most recently defined limits for all such MSIDs ever defined in G_LIMMON, including
-those limit MSIDs which have been disabled::
+Query the most recently defined limits for all such MSIDs ever defined in G_LIMMON, excluding
+those limit MSIDs which have been disabled as of the most recent change for each MSID::
 
     import sqlite3
     db = sqlite3.connect('glimmondb.sqlite3')
     cursor = db.cursor()
     cursor.execute('''SELECT a.msid, a.setkey, a.caution_high, 
                       a.caution_low, a.warning_high, a.warning_low FROM 
-                      limits AS a WHERE a.modversion = (
-                      SELECT MAX(b.modversion) FROM limits AS b WHERE 
-                      a.msid = b.msid and a.setkey = b.setkey) ''')
+                      limits AS a WHERE a.modversion = (SELECT 
+                      MAX(b.modversion) FROM limits AS b WHERE 
+                      a.msid = b.msid AND a.setkey = b.setkey) AND
+                      a.mlmenable=1 ''')
     current_limits = cursor.fetchall()
 
 
-Query the most recently defined limits for one MSID, including it's enabled/disabled (mlmenable)
-state:: 
+Query the most recently defined limits for one MSID, including all limits sets. Note that this 
+will include the latest sets whether or not they have been disabled (missing
+``WHERE a.mlmenable=1``)::
 
     import sqlite3
     db = sqlite3.connect('glimmondb.sqlite3')
@@ -279,7 +284,7 @@ state::
                       a.caution_low, a.warning_high, a.warning_low FROM 
                       limits AS a  WHERE a.msid='tephin' AND a.modversion 
                       = (SELECT MAX(b.modversion) FROM limits AS b WHERE 
-                      b.msid=a.msid) ''')
+                      b.msid=a.msid AND a.setkey = b.setkey) ''')
     current_limits = cursor.fetchall()
 
 
@@ -291,13 +296,27 @@ including those state MSIDs which have been disabled::
     cursor = db.cursor()
     cursor.execute('''SELECT a.msid, a.setkey, a.expst FROM expected_states
                       AS a WHERE a.modversion = (SELECT MAX(b.modversion)
-                      FROM expected_states AS b WHERE a.msid = b.msid and 
+                      FROM expected_states AS b WHERE a.msid = b.msid AND 
                       a.setkey = b.setkey) ''')
     current_expected_states = cursor.fetchall()
 
 
-Query the most recently defined expected state for one MSID, including it's enabled/disabled 
-(mlmenable) state::
+Query the most recently defined expected states for all such MSIDs ever defined in G_LIMMON,
+excluding those state MSIDs which have been disabled:: 
+
+    import sqlite3
+    db = sqlite3.connect('glimmondb.sqlite3')
+    cursor = db.cursor()
+    cursor.execute('''SELECT a.msid, a.setkey, a.expst FROM expected_states
+                      AS a WHERE a.modversion = (SELECT MAX(b.modversion)
+                      FROM expected_states AS b WHERE a.msid = b.msid AND 
+                      a.setkey = b.setkey) AND a.mlmenable=1 ''')
+    current_expected_states = cursor.fetchall()
+
+
+Query the most recently defined expected state for one MSID, including all expected state sets.
+Note that this will include the latest sets whether or not they have been disabled (missing
+``WHERE a.mlmenable=1``)::
 
     import sqlite3
     db = sqlite3.connect('glimmondb.sqlite3')
@@ -305,10 +324,9 @@ Query the most recently defined expected state for one MSID, including it's enab
     cursor.execute('''SELECT a.msid, a.setkey, a.mlmenable, a.expst FROM 
                       expected_states AS a WHERE a.msid='ebt2rly3' AND 
                       a.modversion = (SELECT MAX(b.modversion) FROM 
-                      expected_states AS b WHERE b.msid=a.msid) ''')
+                      expected_states AS b WHERE b.msid=a.msid AND 
+                      a.setkey = b.setkey) ''')
     current_expected_states = cursor.fetchall()
-
-
 
 
 Indices
