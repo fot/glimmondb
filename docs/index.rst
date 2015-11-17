@@ -229,11 +229,9 @@ Table Definitions
 Examples
 ========
 
-One does not need to import the ``glimmondb`` package to access the SQLite 3 database
-
 The following examples should provide a good introduction on how to access this database using
 Python. When using Python to access this database, the ``glimmondb`` package is not required; only
-the ``sqlite3`` package is required. This database should also be accessible outside of Python using
+the ``sqlite3`` package is required. This database is also accessible outside of Python using
 any standard method of accessing an SQLite 3 file.
 
 These examples assume you are working in the directory where a copy of the ``glimmondb.sqlite3``
