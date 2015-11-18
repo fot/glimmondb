@@ -408,7 +408,7 @@ class GLimit(object):
         return msids
 
     def gen_limit_row_data(self):
-        """ Return a G_LIMMON limit definitions in row format.
+        """ Return G_LIMMON limit definitions in row format.
 
         The returned list will be structured to be compatible with the final sqlite3 limit
         definition table.
@@ -486,7 +486,7 @@ class GLimit(object):
         return limitrowdata
 
     def gen_state_row_data(self):
-        """ Return a G_LIMMON expected state definitions in row format.
+        """ Return G_LIMMON expected state definitions in row format.
 
         The returned list will be structured to be compatible with the final sqlite3 expected
         state definition table.
@@ -932,15 +932,17 @@ def create_db(gdb, discard_disabled_sets=True):
     return newdb_obj.db
 
 
-def recreate_db():
+def recreate_db(glimmondbfile='glimmondb.sqlite3'):
     """ Recreate the G_LIMMON history sqlite3 database from all G_LIMMON.dec past versions.
+
+    :param glimmondbfile: Filename for glimmon database, defaults to 'glimmondb.sqlite3'
 
     """
 
     from operator import itemgetter
     import glob
 
-    def write_initial_db(gdb):
+    def write_initial_db(gdb, glimmondbfile):
         """ Write Initial DB to Disk
         """
 
@@ -960,14 +962,14 @@ def recreate_db():
         newdb = create_db(gdb, discard_disabled_sets=True)
         newdb.close()
         temp_filename = pathjoin(DBDIR, 'temporary_db.sqlite3')
-        db_filename = pathjoin(DBDIR, 'glimmondb.sqlite3')
+        db_filename = pathjoin(DBDIR, glimmondbfile)
         copy_anything(temp_filename, db_filename)
 
         logging.info(
             '========================= glimmondb.sqlite3 Initialized =========================\n')
 
     def get_glimmon_arch_filenames():
-        glimmon_files = glob.glob(pathjoin(DBDIR, "G_LIMMON_2.*.dec"))
+        glimmon_files = glob.glob(pathjoin(DBDIR, 'G_LIMMON_2.*.dec'))
         return glimmon_files
 
     def get_glimmon_versions(glimmon_files):
@@ -991,7 +993,7 @@ def recreate_db():
     for msid in g.keys():
         update_msid(msid.lower(), tdb, g)
 
-    write_initial_db(g)
+    write_initial_db(g, glimmondbfile)
 
     glimmon_files = get_glimmon_arch_filenames()
     revisions = get_glimmon_versions(glimmon_files)
@@ -999,14 +1001,15 @@ def recreate_db():
     for rev in revisions:
         print("Importing revision {}-{}".format(rev[0], rev[1]))
         gfile = pathjoin(DBDIR, "G_LIMMON_{}.{}.dec".format(rev[0], rev[1]))
-        merge_new_glimmon_to_db(gfile, tdbs)
+        merge_new_glimmon_to_db(gfile, tdbs, glimmondbfile)
 
 
-def merge_new_glimmon_to_db(filename, tdbs):
+def merge_new_glimmon_to_db(filename, tdbs, glimmondbfile='glimmondb.sqlite3'):
     """ Merge a new G_LIMMON.dec file into the sqlite3 database.
 
     :param filename: Full path + filename for new G_LIMMON.dec file
     :param tdbs: Dictionary containing data from all TDB versions
+    :param glimmondbfile: Filename for glimmon database, defaults to 'glimmondb.sqlite3'
 
     """
 
@@ -1018,7 +1021,7 @@ def merge_new_glimmon_to_db(filename, tdbs):
 
     newver = g['revision'][2:]
 
-    glimmondb_filename = pathjoin(DBDIR, 'glimmondb.sqlite3')
+    glimmondb_filename = pathjoin(DBDIR, glimmondbfile)
     olddb = sqlite3.connect(glimmondb_filename)
     oldcursor = olddb.cursor()
     oldcursor.execute("""SELECT MAX(version) FROM versions""")
