@@ -19,14 +19,20 @@ elif getenv('SKA_DATA'):
 else:
     DBDIR = getcwd()
 
-if getenv('TBDDATA'):
-    TDBDIR = getenv('TBDDATA')
+if getenv('TDBDATA'):
+    TDBDIR = getenv('TDBDATA')
 elif getenv('SKA_DATA'):
     TDBDIR = pathjoin(getenv('SKA_DATA'), 'fot_tdb_archive/')
 else:
     TDBDIR = getcwd()
 
 logfile = pathjoin(DBDIR, 'DB_Commit.log')
+# try:
+#     with open(logfile) as fid:
+#         pass
+# except IOError:
+#     mknod(logfile)
+
 logging.basicConfig(filename=logfile, level=logging.DEBUG,
                     format='%(asctime)s %(message)s')
 
