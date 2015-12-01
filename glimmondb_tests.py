@@ -3,16 +3,12 @@ from os import environ, mkdir, rmdir, getenv, mknod, remove
 from sqlite3 import connect
 from hashlib import sha256
 from shutil import copytree, rmtree, copy
-from os.path import expanduser
 
 from Chandra.Time import DateTime
 
 # Set this for now, this should not be necessary in production
-home = expanduser("~")
-# environ["SKA_DATA"] = "/home/mdahmer/AXAFAUTO/"
-# environ["TDBDATA"] = "/home/mdahmer/AXAFAUTO/TDB_Archive/"
-environ["SKA_DATA"] = pathjoin(home, "AXAFAUTO/"
-environ["TDBDATA"] = pathjoin(home, "AXAFAUTO/TDB_Archive/"
+environ["SKA_DATA"] = "/home/mdahmer/AXAFAUTO/"
+environ["TDBDATA"] = "/home/mdahmer/AXAFAUTO/TDB_Archive/"
 
 
 try:
@@ -97,7 +93,7 @@ def test_function():
         'glimmondb.sqlite3'), datecheckbefore)
 
     saveoutputs(new_all_limits, new_all_states, new_all_versions, prestr='new')
-    saveoutputs(old_all_limits, old_all_states, old_all_versions, prestr='old')
+    saveoutputs(old_all_limits, old_all_states, old_all_versions, prestr='new')
 
     newlimithash, newstatehash, newversionhash = gethashes(new_all_limits, new_all_states, new_all_versions)
     oldlimithash, oldstatehash, oldversionhash = gethashes(old_all_limits, old_all_states, old_all_versions)
