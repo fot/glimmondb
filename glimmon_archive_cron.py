@@ -8,7 +8,7 @@ from os.path import expanduser
 from os.path import join as pathjoin
 import cPickle as pickle
 
-import pylimmon
+import glimmondb
 
 home = expanduser("~")
 archive = pathjoin(home, "AXAFAUTO/G_LIMMON_Archive/")
@@ -104,7 +104,7 @@ if __name__ == '__main__':
         print("New G_LIMMON.dec file copied")
 
         tdbs = pickle.load(open(tdbfile, 'r'))
-        pylimmon.merge_new_glimmon_to_db(newfile, tdbs)
+        glimmondb.merge_new_glimmon_to_db(newfile, tdbs)
         print("New G_LIMMON.dec merged into sqlite database")
 
     else:
