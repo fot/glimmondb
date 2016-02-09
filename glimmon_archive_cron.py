@@ -10,9 +10,11 @@ import cPickle as pickle
 
 import glimmondb
 
-home = expanduser("~")
-archive = pathjoin(home, "AXAFAUTO/G_LIMMON_Archive/")
-tdbfile = pathjoin(home, "AXAFAUTO/TDB_Archive/tdb_all.pkl")
+# home = expanduser("~")
+# archive = pathjoin(home, "AXAFAUTO/G_LIMMON_Archive/")
+# tdbfile = pathjoin(home, "AXAFAUTO/TDB_Archive/tdb_all.pkl")
+archive = glimmondb.DBDIR
+tdbfile = pathjoin(glimmon.TDBDIR, "tdb_all.pkl")
 
 
 def get_date():
