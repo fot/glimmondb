@@ -1,6 +1,6 @@
 
 import sqlite3
-import cPickle as pickle
+import pickle as pickle
 import shutil
 import errno
 from os.path import join as pathjoin
@@ -8,7 +8,8 @@ from os import getenv, getcwd
 import numpy as np
 import re
 import logging
-reload(logging)  # avoids issue with ipython notebook
+import imp
+imp.reload(logging)  # avoids issue with ipython notebook
 
 from Chandra.Time import DateTime
 
@@ -130,7 +131,7 @@ def read_glimmon(filename='/home/greta/AXAFSHARE/dec/G_LIMMON.dec'):
             elif words[0] == 'MLIMIT':
                 setnum = int(words[2])
                 glimmon[name].update({setnum: {}})
-                if glimmon[name].has_key('setkeys'):
+                if 'setkeys' in glimmon[name]:
                     glimmon[name]['setkeys'].append(setnum)
                 else:
                     glimmon[name]['setkeys'] = [setnum, ]
@@ -210,7 +211,7 @@ def assign_sets(dbsets):
     This also adds a list of set numbers using zero-based numbering.
     """
     limits = {'setkeys': []}
-    for setnum in dbsets.keys():
+    for setnum in list(dbsets.keys()):
         setnumint = int(setnum) - 1
         limits.update({setnumint: dbsets[setnum]})
         limits['setkeys'].append(setnumint)
@@ -260,13 +261,13 @@ def fill_limits(tdb, g, msid):
     if is_not_nan(tdb[msid]['limit_switch_msid']):
         limits['mlimsw'] = tdb[msid]['limit_switch_msid']
 
-        if 'lim_switch' in tdb[msid].keys():
+        if 'lim_switch' in list(tdb[msid].keys()):
             for setkey in limits['setkeys']:  # assuming there are limit switch states for each set
-                charkey = unicode(setkey + 1)
+                charkey = str(setkey + 1)
                 try:
                     limits[setkey]['switchstate'] = tdb[msid]['lim_switch'][charkey]['state_code']
                 except:
-                    limits[setkey]['switchstate'] = u'none'
+                    limits[setkey]['switchstate'] = 'none'
 
     # for setkey in limits['setkeys']:
     #     if 'state_code' in limits[setkey].keys():
@@ -274,11 +275,11 @@ def fill_limits(tdb, g, msid):
     #         _ = limits[setkey].pop('state_code')
 
     # Fill in the default tolerance specified in the GLIMMON file
-    if 'mlmtol' not in g[msid.upper()].keys():
+    if 'mlmtol' not in list(g[msid.upper()].keys()):
         limits['mlmtol'] = g['mlmdeftol']
 
     # if mlmenable is not specified, set it to 1 (enabled) as a default
-    if 'mlmenable' not in g[msid.upper()].keys():
+    if 'mlmenable' not in list(g[msid.upper()].keys()):
         limits['mlmenable'] = 1
 
     # GLIMMON values take precedence over database values so if any are defined, update
@@ -315,13 +316,13 @@ def fill_states(tdb, g, msid):
     if is_not_nan(tdb[msid]['es_switch_msid']):
         states['mlimsw'] = tdb[msid]['es_switch_msid']
 
-        if 'es_switch' in tdb[msid].keys():
+        if 'es_switch' in list(tdb[msid].keys()):
             for setkey in states['setkeys']:  # assuming there are limit switch states for each set
-                charkey = unicode(setkey + 1)
+                charkey = str(setkey + 1)
                 try:
                     states[setkey]['switchstate'] = tdb[msid]['es_switch'][charkey]['state_code']
                 except:
-                    states[setkey]['switchstate'] = u'none'
+                    states[setkey]['switchstate'] = 'none'
 
     for setkey in states['setkeys']:
         # if 'state_code' in states[setkey].keys():
@@ -334,11 +335,11 @@ def fill_states(tdb, g, msid):
             _ = states[setkey].pop('expected_state')
 
     # Fill in the default tolerance specified in the GLIMMON file
-    if 'mlmtol' not in g[msid.upper()].keys():
+    if 'mlmtol' not in list(g[msid.upper()].keys()):
         states['mlmtol'] = g['mlmdeftol']
 
     # if mlmenable is not specified, set it to 1 (enabled) as a default
-    if 'mlmenable' not in g[msid.upper()].keys():
+    if 'mlmenable' not in list(g[msid.upper()].keys()):
         states['mlmenable'] = 1
 
     # GLIMMON values take precedence over database values so if any are defined, update
@@ -356,10 +357,10 @@ def update_msid(msid, tdb, g):
     :param tdb: TDB datastructure (corresponding to p012, p013, etc.)
     :param g: G_LIMMON datastructure (corresponding to a single version, e.g. 2.256)
     """
-    if msid in tdb.keys():
-        if tdb[msid].has_key('limit'):
+    if msid in list(tdb.keys()):
+        if 'limit' in tdb[msid]:
             fill_limits(tdb, g, msid)
-        elif tdb[msid].has_key('exp_state'):
+        elif 'exp_state' in tdb[msid]:
             fill_states(tdb, g, msid)
 
 
@@ -401,7 +402,7 @@ class GLimit(object):
         This list of msids is generated from the self.gdb dictionary keys with non-msid keys
         removed.
         """
-        msids = self.gdb.keys()
+        msids = list(self.gdb.keys())
         removekeys = ['revision', 'version', 'mlmdeftol', 'mlmthrow', 'database', 'date']
         for key in removekeys:
             self.__setattr__(key, self.gdb[key])
@@ -409,7 +410,7 @@ class GLimit(object):
 
         # MSIDs that have no type will not have any defined limits/expected states (e.g. coscs098s)
         for msid in msids:
-            if 'type' not in self.gdb[msid].keys():
+            if 'type' not in list(self.gdb[msid].keys()):
                 msids.remove(msid)
         return msids
 
@@ -425,7 +426,7 @@ class GLimit(object):
             mdata = self.gdb[msid]
             if mdata['type'].lower() == 'limit':
                 for setkey in mdata['setkeys']:
-                    if setkey in mdata.keys():
+                    if setkey in list(mdata.keys()):
                         rowdata = []
                         rowdata.append(msid.lower())
                         rowdata.append(setkey)
@@ -435,47 +436,47 @@ class GLimit(object):
                         rowdata.append(int(self.revision[2:]))
                         # rowdata.append(1) # Active
 
-                        if 'mlmenable' in mdata.keys():
+                        if 'mlmenable' in list(mdata.keys()):
                             rowdata.append(mdata['mlmenable'])
                         else:
                             rowdata.append('1')
 
-                        if 'mlmtol' in mdata.keys():
+                        if 'mlmtol' in list(mdata.keys()):
                             rowdata.append(mdata['mlmtol'])
                         else:
                             rowdata.append('1')
 
-                        if 'default' in mdata.keys():
+                        if 'default' in list(mdata.keys()):
                             rowdata.append(mdata['default'])
                         else:
                             rowdata.append('0')
 
-                        if 'mlimsw' in mdata.keys():
+                        if 'mlimsw' in list(mdata.keys()):
                             rowdata.append(mdata['mlimsw'].lower())
                         else:
                             rowdata.append('none')
 
-                        if 'caution_high' in mdata[setkey].keys():
+                        if 'caution_high' in list(mdata[setkey].keys()):
                             rowdata.append(mdata[setkey]['caution_high'])
                         else:
                             rowdata.append('none')
 
-                        if 'caution_low' in mdata[setkey].keys():
+                        if 'caution_low' in list(mdata[setkey].keys()):
                             rowdata.append(mdata[setkey]['caution_low'])
                         else:
                             rowdata.append('none')
 
-                        if 'warning_high' in mdata[setkey].keys():
+                        if 'warning_high' in list(mdata[setkey].keys()):
                             rowdata.append(mdata[setkey]['warning_high'])
                         else:
                             rowdata.append('none')
 
-                        if 'warning_low' in mdata[setkey].keys():
+                        if 'warning_low' in list(mdata[setkey].keys()):
                             rowdata.append(mdata[setkey]['warning_low'])
                         else:
                             rowdata.append('none')
 
-                        if 'switchstate' in mdata[setkey].keys():
+                        if 'switchstate' in list(mdata[setkey].keys()):
                             rowdata.append(mdata[setkey]['switchstate'].lower())
                         else:
                             rowdata.append('none')
@@ -503,7 +504,7 @@ class GLimit(object):
             mdata = self.gdb[msid]
             if mdata['type'].lower() == 'expected_state':
                 for setkey in mdata['setkeys']:
-                    if setkey in mdata.keys():
+                    if setkey in list(mdata.keys()):
                         rowdata = []
                         rowdata.append(msid.lower())
                         rowdata.append(setkey)
@@ -513,32 +514,32 @@ class GLimit(object):
                         rowdata.append(int(self.revision[2:]))
                         # rowdata.append(1) # Active
 
-                        if 'mlmenable' in mdata.keys():
+                        if 'mlmenable' in list(mdata.keys()):
                             rowdata.append(mdata['mlmenable'])
                         else:
                             rowdata.append('1')
 
-                        if 'mlmtol' in mdata.keys():
+                        if 'mlmtol' in list(mdata.keys()):
                             rowdata.append(mdata['mlmtol'])
                         else:
                             rowdata.append('1')
 
-                        if 'default' in mdata.keys():
+                        if 'default' in list(mdata.keys()):
                             rowdata.append(mdata['default'])
                         else:
                             rowdata.append('0')
 
-                        if 'mlimsw' in mdata.keys():
+                        if 'mlimsw' in list(mdata.keys()):
                             rowdata.append(mdata['mlimsw'].lower())
                         else:
                             rowdata.append('none')
 
-                        if 'expst' in mdata[setkey].keys():
+                        if 'expst' in list(mdata[setkey].keys()):
                             rowdata.append(mdata[setkey]['expst'].lower())
                         else:
                             rowdata.append('none')
 
-                        if 'switchstate' in mdata[setkey].keys():
+                        if 'switchstate' in list(mdata[setkey].keys()):
                             rowdata.append(mdata[setkey]['switchstate'].lower())
                         else:
                             rowdata.append('none')
@@ -933,7 +934,7 @@ def create_db(gdb, discard_disabled_sets=True):
     g = GLimit(gdb, discard_disabled_sets)
     esstaterowdata2 = g.gen_state_row_data()
     limitrowdata2 = g.gen_limit_row_data()
-    version = int(unicode(gdb['revision'])[2:])
+    version = int(str(gdb['revision'])[2:])
     newdb_obj = NewLimitDB(limitrowdata2, esstaterowdata2, version, g.date, g.datesec)
     return newdb_obj.db
 
@@ -996,7 +997,7 @@ def recreate_db(glimmondbfile='glimmondb.sqlite3'):
     tdbs = pickle.load(open(tdbfile, 'r'))
     tdb = get_tdb(tdbs, g['revision'][2:])
 
-    for msid in g.keys():
+    for msid in list(g.keys()):
         update_msid(msid.lower(), tdb, g)
 
     write_initial_db(g, glimmondbfile)
@@ -1005,7 +1006,7 @@ def recreate_db(glimmondbfile='glimmondb.sqlite3'):
     revisions = get_glimmon_versions(glimmon_files)
 
     for rev in revisions:
-        print("Importing revision {}-{}".format(rev[0], rev[1]))
+        print(("Importing revision {}-{}".format(rev[0], rev[1])))
         gfile = pathjoin(DBDIR, "G_LIMMON_{}.{}.dec".format(rev[0], rev[1]))
         merge_new_glimmon_to_db(gfile, tdbs, glimmondbfile)
 
@@ -1022,7 +1023,7 @@ def merge_new_glimmon_to_db(filename, tdbs, glimmondbfile='glimmondb.sqlite3'):
     g = read_glimmon(filename)
 
     tdb = get_tdb(tdbs, g['revision'][2:])
-    for msid in g.keys():
+    for msid in list(g.keys()):
         update_msid(msid.lower(), tdb, g)
 
     newver = g['revision'][2:]
