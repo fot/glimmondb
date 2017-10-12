@@ -62,6 +62,10 @@ def get_tdb(tdbs=None, revision=000, return_dates=False):
         return startdates
 
     else:
+        if not tdbs:
+            tdbfile = pathjoin(TDBDIR, "tdb_all.pkl")
+            tdbs = pickle.load(open(tdbfile, 'rb'))
+
         revision = int(revision)
         if revision <= 130:
             print ('Using P007')
@@ -994,7 +998,7 @@ def recreate_db(glimmondbfile='glimmondb.sqlite3'):
     g['revision'] = '2.0'
 
     tdbfile = pathjoin(TDBDIR, 'tdb_all.pkl')
-    tdbs = pickle.load(open(tdbfile, 'r'))
+    tdbs = pickle.load(open(tdbfile, 'rb'))
     tdb = get_tdb(tdbs, g['revision'][2:])
 
     for msid in list(g.keys()):
