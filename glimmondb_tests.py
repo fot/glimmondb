@@ -59,8 +59,8 @@ def querydatabase(glimmondbfile, datecheckbefore):
 
 
 def gethashes(all_limits, all_states, all_versions):
-    limithash = sha256(unicode(all_limits).encode('utf-8')).hexdigest()
-    statehash = sha256(unicode(all_states).encode('utf-8')).hexdigest()
+    limithash = sha256(str(all_limits).encode('utf-8')).hexdigest()
+    statehash = sha256(str(all_states).encode('utf-8')).hexdigest()
     versionhash = sha256(str(all_versions).encode('utf-8')).hexdigest()
     return limithash, statehash, versionhash
 
