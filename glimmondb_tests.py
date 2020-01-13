@@ -28,12 +28,12 @@ copytree(pathjoin(getenv('SKA_DATA'), 'glimmon_archive/'), './testing_data/')
 try:
     remove('./testing_data/DB_Commit.log')
 except:
-    print 'Could not delete old log'
+    print('Could not delete old log')
 import glimmondb
 
 print('\nRegenerated testing folder at: ./testing_data')
-print('Using G_LIMMON Archive at: {}'.format(glimmondb.DBDIR))
-print('Using TDB Archive at: {}'.format(glimmondb.TDBDIR))
+print(('Using G_LIMMON Archive at: {}'.format(glimmondb.DBDIR)))
+print(('Using TDB Archive at: {}'.format(glimmondb.TDBDIR)))
 
 def querydatabase(glimmondbfile, datecheckbefore):
     db = connect(glimmondbfile)
@@ -59,9 +59,9 @@ def querydatabase(glimmondbfile, datecheckbefore):
 
 
 def gethashes(all_limits, all_states, all_versions):
-    limithash = sha256(unicode(all_limits)).hexdigest()
-    statehash = sha256(unicode(all_states)).hexdigest()
-    versionhash = sha256(unicode(all_versions)).hexdigest()
+    limithash = sha256(str(all_limits).encode('utf-8')).hexdigest()
+    statehash = sha256(str(all_states).encode('utf-8')).hexdigest()
+    versionhash = sha256(str(all_versions).encode('utf-8')).hexdigest()
     return limithash, statehash, versionhash
 
 
@@ -69,15 +69,15 @@ def gethashes(all_limits, all_states, all_versions):
 def saveoutputs(all_limits, all_states, all_versions, prestr='new'):
     with open(pathjoin(glimmondb.DBDIR, '{}_limits_data.txt'.format(prestr)), 'w') as fid:
         for row in all_limits:
-            fid.write('{}\n'.format(unicode(row)))
+            fid.write('{}\n'.format(str(row)))
 
     with open(pathjoin(glimmondb.DBDIR, '{}_states_data.txt'.format(prestr)), 'w') as fid:
         for row in all_states:
-            fid.write('{}\n'.format(unicode(row)))
+            fid.write('{}\n'.format(str(row)))
 
     with open(pathjoin(glimmondb.DBDIR, '{}_versions_data.txt'.format(prestr)), 'w') as fid:
         for row in all_versions:
-            fid.write('{}\n'.format(unicode(row)))
+            fid.write('{}\n'.format(str(row)))
 
 
 
@@ -103,16 +103,19 @@ def test_function():
     oldlimithash, oldstatehash, oldversionhash = gethashes(old_all_limits, old_all_states,
                                                            old_all_versions)
 
-    print('newlimithash = {}\nnewstatehash = {}\nnewversionhash = {}'.format(newlimithash,
+    print(('newlimithash = {}\nnewstatehash = {}\nnewversionhash = {}'.format(newlimithash,
                                                                              newstatehash,
-                                                                             newversionhash))
-    print('oldlimithash = {}\noldstatehash = {}\noldversionhash = {}'.format(oldlimithash,
+                                                                             newversionhash)))
+    print(('oldlimithash = {}\noldstatehash = {}\noldversionhash = {}'.format(oldlimithash,
                                                                              oldstatehash,
-                                                                             oldversionhash))
+                                                                             oldversionhash)))
 
     assert oldlimithash == newlimithash
     assert oldstatehash == newstatehash
     assert oldversionhash == newversionhash
 
-    print('Test Completed {}'.format(DateTime().caldate))
+    print(('Test Completed {}'.format(DateTime().caldate)))
 
+
+if __name__ == '__main__':
+    test_function()
