@@ -267,9 +267,9 @@ def fill_limits(tdb, g, msid):
 
         if 'lim_switch' in list(tdb[msid].keys()):
             for setkey in limits['setkeys']:  # assuming there are limit switch states for each set
-                charkey = str(setkey + 1)
+                indkey = setkey + 1
                 try:
-                    limits[setkey]['switchstate'] = tdb[msid]['lim_switch'][charkey]['state_code']
+                    limits[setkey]['switchstate'] = tdb[msid]['lim_switch'][indkey]['state_code']
                 except:
                     limits[setkey]['switchstate'] = 'none'
 
