@@ -46,7 +46,7 @@ def get_glimmon_hash(lines):
 
 
 def read_glimmon_file(newfilename):
-    with file(newfilename, "r") as fid:
+    with open(newfilename, "r") as fid:
         lines = fid.readlines()
     return lines
 
