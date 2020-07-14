@@ -9,9 +9,9 @@ from Chandra.Time import DateTime
 # Run this to test:
 # py.test -s glimmondb_tests.py
 
-# Set this for now, this should not be necessary in production as this variable should already
-# be set.
-environ["SKA_DATA"] = "/proj/sot/ska/data"
+# This should be set by default, you may need to uncomment and modify the path below for local
+# use or testing. 
+# environ["SKA_DATA"] = "/proj/sot/ska/data"
 
 # This should be set by default in glimmondb.py, uncomment and modify the path below for local
 # testing of a TDB update.
