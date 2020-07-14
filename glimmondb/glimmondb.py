@@ -100,7 +100,7 @@ def read_glimmon(filename='/home/greta/AXAFSHARE/dec/G_LIMMON.dec'):
 
     """
 
-    revision_pattern = '.*\$Revision\s*:\s*([0-9.]+).*$'
+    revision_pattern = '[\s#]*\$Revision\s*:\s*([0-9.]+).*$'
     date_pattern = '.*\$Date\s*:\s*([0-9]+)/([0-9]+)/([0-9]+)\s+([0-9]+):([0-9]+):([0-9]+).*$'
     version_pattern = '.*Version\s*:\s*[$]?([A-Za-z0-9.:\s*]*)[$]?"\s*$'
     database_pattern = '.*Database\s*:\s*(\w*)"\s*$'
@@ -562,161 +562,6 @@ class GLimit(object):
 
         return limitrowdata, esstaterowdata
 
-    # def gen_limit_row_data(self):
-    #     """ Return G_LIMMON limit definitions in row format.
-
-    #     The returned list will be structured to be compatible with the final sqlite3 limit
-    #     definition table.
-    #     """
-    #     limitrowdata = []
-    #     for msid in self.msids:
-    #         mdata = self.gdb[msid]
-
-    #         # If an msid is disabled in the TDB and in G_LIMMON, it may not have a 'limit' or
-    #         # 'expst' designation. Work around this by looking for 'mlmenable':0.
-    #         if ('mlmenable', 0) not in mdata.items():
-
-    #             if 'type' not in mdata.keys():
-    #                 print('{} does not have "type"'.format(msid))
-
-    #             if mdata['type'].lower() == 'limit':
-    #                 for setkey in mdata['setkeys']:
-    #                     if setkey in list(mdata.keys()):
-    #                         rowdata = []
-    #                         rowdata.append(msid.lower())
-    #                         rowdata.append(setkey)
-    #                         rowdata.append(self.datesec)
-    #                         rowdata.append(self.date)
-    #                         # only want values after decimal point
-    #                         rowdata.append(int(self.revision[2:]))
-    #                         # rowdata.append(1) # Active
-
-    #                         if 'mlmenable' in list(mdata.keys()):
-    #                             rowdata.append(mdata['mlmenable'])
-    #                         else:
-    #                             rowdata.append('1')
-
-    #                         if 'mlmtol' in list(mdata.keys()):
-    #                             rowdata.append(mdata['mlmtol'])
-    #                         else:
-    #                             rowdata.append('1')
-
-    #                         if 'default' in list(mdata.keys()):
-    #                             rowdata.append(mdata['default'])
-    #                         else:
-    #                             rowdata.append('0')
-
-    #                         if 'mlimsw' in list(mdata.keys()):
-    #                             rowdata.append(mdata['mlimsw'].lower())
-    #                         else:
-    #                             rowdata.append('none')
-
-    #                         if 'caution_high' in list(mdata[setkey].keys()):
-    #                             rowdata.append(mdata[setkey]['caution_high'])
-    #                         else:
-    #                             rowdata.append('none')
-
-    #                         if 'caution_low' in list(mdata[setkey].keys()):
-    #                             rowdata.append(mdata[setkey]['caution_low'])
-    #                         else:
-    #                             rowdata.append('none')
-
-    #                         if 'warning_high' in list(mdata[setkey].keys()):
-    #                             rowdata.append(mdata[setkey]['warning_high'])
-    #                         else:
-    #                             rowdata.append('none')
-
-    #                         if 'warning_low' in list(mdata[setkey].keys()):
-    #                             rowdata.append(mdata[setkey]['warning_low'])
-    #                         else:
-    #                             rowdata.append('none')
-
-    #                         if 'switchstate' in list(mdata[setkey].keys()):
-    #                             rowdata.append(mdata[setkey]['switchstate'].lower())
-    #                         else:
-    #                             rowdata.append('none')
-
-    #                         limitrowdata.append(rowdata)
-
-    #     # Remove disabled MSID rows, this will be taken care of later when these
-    #     # are found to be missing
-    #     if self.discard_disabled_sets:
-    #         for n, row in enumerate(limitrowdata):
-    #             if int(row[5]) == 0:
-    #                 _ = limitrowdata.pop(n)
-
-    #     return limitrowdata
-
-    # def gen_state_row_data(self):
-    #     """ Return G_LIMMON expected state definitions in row format.
-
-    #     The returned list will be structured to be compatible with the final sqlite3 expected
-    #     state definition table.
-    #     """
-
-    #     esstaterowdata = []
-    #     for msid in self.msids:
-    #         mdata = self.gdb[msid]
-
-    #         # If an msid is disabled in the TDB and in G_LIMMON, it may not have a 'limit' or
-    #         # 'expst' designation. Work around this by looking for 'mlmenable':0.
-    #         if ('mlmenable', 0) not in mdata.items():
-
-    #             if 'type' not in mdata.keys():
-    #                 print('{} does not have "type"'.format(msid))
-
-    #             if mdata['type'].lower() == 'expected_state':
-    #                 for setkey in mdata['setkeys']:
-    #                     if setkey in list(mdata.keys()):
-    #                         rowdata = []
-    #                         rowdata.append(msid.lower())
-    #                         rowdata.append(setkey)
-    #                         rowdata.append(self.datesec)
-    #                         rowdata.append(self.date)
-    #                         # only want values after decimal point
-    #                         rowdata.append(int(self.revision[2:]))
-    #                         # rowdata.append(1) # Active
-
-    #                         if 'mlmenable' in list(mdata.keys()):
-    #                             rowdata.append(mdata['mlmenable'])
-    #                         else:
-    #                             rowdata.append('1')
-
-    #                         if 'mlmtol' in list(mdata.keys()):
-    #                             rowdata.append(mdata['mlmtol'])
-    #                         else:
-    #                             rowdata.append('1')
-
-    #                         if 'default' in list(mdata.keys()):
-    #                             rowdata.append(mdata['default'])
-    #                         else:
-    #                             rowdata.append('0')
-
-    #                         if 'mlimsw' in list(mdata.keys()):
-    #                             rowdata.append(mdata['mlimsw'].lower())
-    #                         else:
-    #                             rowdata.append('none')
-
-    #                         if 'expst' in list(mdata[setkey].keys()):
-    #                             rowdata.append(mdata[setkey]['expst'].lower())
-    #                         else:
-    #                             rowdata.append('none')
-
-    #                         if 'switchstate' in list(mdata[setkey].keys()):
-    #                             rowdata.append(mdata[setkey]['switchstate'].lower())
-    #                         else:
-    #                             rowdata.append('none')
-
-    #                         esstaterowdata.append(rowdata)
-
-    #     # Remove disabled MSID rows, this will be marked as disabled later when
-    #     # these are found to be missing
-    #     if self.discard_disabled_sets:
-    #         for n, row in enumerate(esstaterowdata):
-    #             if int(row[5]) == 0:
-    #                 _ = esstaterowdata.pop(n)
-
-    #     return esstaterowdata
 
     def write_limit_row_data(self, limitrowdata):
         """ Write limit table to file.
@@ -976,6 +821,8 @@ def commit_new_version_row(olddb, newdb):
     newcursor = newdb.cursor()
     data = newcursor.execute("""SELECT version, datesec, date FROM versions""")
     version, datesec, date = data.fetchone()
+
+    print('Imported: Version: {}, datesec: {}, date: {}'.format(version, datesec, date))
 
     oldcursor = olddb.cursor()
     oldcursor.execute(
