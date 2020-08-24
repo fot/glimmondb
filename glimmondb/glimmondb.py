@@ -100,10 +100,8 @@ def read_glimmon(filename='/home/greta/AXAFSHARE/dec/G_LIMMON.dec'):
 
     """
 
-    revision_pattern = '[\s#]*\$Revision\s*:\s*([0-9.]+).*$'
+    revision_pattern = '\s*#\s*\$Revision\s*:\s*([0-9.]+).*$'
     date_pattern = '.*\$Date\s*:\s*([0-9]+)/([0-9]+)/([0-9]+)\s+([0-9]+):([0-9]+):([0-9]+).*$'
-    version_pattern = '.*Version\s*:\s*[$]?([A-Za-z0-9.:\s*]*)[$]?"\s*$'
-    database_pattern = '.*Database\s*:\s*(\w*)"\s*$'
 
     # Read the GLIMMON.dec file and store each line in "gfile"
     with open(filename, 'r') as fid:
@@ -180,24 +178,15 @@ def read_glimmon(filename='/home/greta/AXAFSHARE/dec/G_LIMMON.dec'):
                 glimmon.update({'mlmthrow': int(words[1])})
 
             elif len(re.findall(revision_pattern, line)) > 0:
-                version = re.findall(revision_pattern, line)
-                glimmon.update({'revision': version[0].strip()})
-                glimmon.update({'version': version[0].strip()})
+                revision = re.findall(revision_pattern, line)
+                glimmon.update({'revision': revision[0].strip()})
+                glimmon.update({'version': revision[0].strip()})
 
-            elif len(re.findall('^XMSID TEXTONLY ROWCOL.*COLOR.*Version', line)) > 0:
-                version = re.findall(version_pattern, line)
-                glimmon.update({'version': version[0].strip()})
-
-            elif len(re.findall('^XMSID TEXTONLY ROWCOL.*COLOR.*Database', line)) > 0:
-                database = re.findall(database_pattern, line)
-                glimmon.update({'database': database[0].strip()})
-
-        # elif len(re.findall('^#\$Revision', comment_line)) > 0:
         elif len(re.findall(revision_pattern, comment_line)) > 0:
             revision = re.findall(revision_pattern, comment_line)
             glimmon.update({'revision': revision[0].strip()})
+            glimmon.update({'version': revision[0].strip()})
 
-        # elif len(re.findall('^#\$Date', comment_line)) > 0:
         elif len(re.findall(date_pattern, comment_line)) > 0:
             date = re.findall(date_pattern, comment_line)
             glimmon.update({'date': date[0]})
@@ -407,7 +396,7 @@ class GLimit(object):
         removed.
         """
         msids = list(self.gdb.keys())
-        removekeys = ['revision', 'version', 'mlmdeftol', 'mlmthrow', 'database', 'date']
+        removekeys = ['revision', 'version', 'mlmdeftol', 'mlmthrow', 'date']
         for key in removekeys:
             self.__setattr__(key, self.gdb[key])
             msids.remove(key)
