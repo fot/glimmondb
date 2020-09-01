@@ -41,7 +41,7 @@ def get_glimmon_revision(lines):
 
 def get_glimmon_hash(lines):
     m = hashlib.md5()
-    m.update("".join(lines))
+    m.update("".join(lines).encode('utf-8'))
     return m.hexdigest()
 
 
