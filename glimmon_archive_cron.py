@@ -103,13 +103,13 @@ if __name__ == '__main__':
         shutil.copy2("/home/greta/AXAFSHARE/dec/G_LIMMON.dec", newfile)
         logging.info('Current G_LIMMON revision {}.{} added to archive'.format(
             new_revision[0], new_revision[1]))
-        print("New G_LIMMON.dec file copied")
+        print(f"{datestring}: New G_LIMMON.dec file copied")
 
         tdbs = pickle.load(open(tdbfile, 'r'))
         glimmondb.merge_new_glimmon_to_db(newfile, tdbs)
-        print("New G_LIMMON.dec merged into sqlite database")
+        print(f"{datestring}:New G_LIMMON.dec merged into sqlite database")
 
     else:
         logging.info('Current G_LIMMON revision {}.{} already in archive'.format(
             new_revision[0], new_revision[1]))
-        print("G_LIMMON.dec archive up to date")
+        print(f"{datestring}:G_LIMMON.dec archive up to date")

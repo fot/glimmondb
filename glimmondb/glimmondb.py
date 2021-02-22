@@ -1,4 +1,5 @@
 
+import sys
 import sqlite3
 import pickle as pickle
 import shutil
@@ -36,6 +37,7 @@ logfile = pathjoin(DBDIR, 'DB_Commit.log')
 
 logging.basicConfig(filename=logfile, level=logging.DEBUG,
                     format='%(asctime)s %(message)s')
+logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
 
 def get_tdb(tdbs=None, revision=000, return_dates=False):
