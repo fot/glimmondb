@@ -135,6 +135,10 @@ def read_glimmon(filename='/home/greta/AXAFSHARE/dec/G_LIMMON.dec'):
                 name = words[1]
                 glimmon.update({name: {}})
 
+            elif (words[0] == 'MMSID'):
+                name = words[1]
+                glimmon.update({name: {}})
+
             elif words[0] == 'MLIMIT':
                 setnum = int(words[2])
                 glimmon[name].update({setnum: {}})
