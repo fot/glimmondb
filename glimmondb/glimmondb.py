@@ -324,9 +324,9 @@ def fill_states(tdb, g, msid):
 
         if 'es_switch' in list(tdb[msid].keys()):
             for setkey in states['setkeys']:  # assuming there are limit switch states for each set
-                charkey = str(setkey + 1)
+                intkey = setkey + 1
                 try:
-                    states[setkey]['switchstate'] = tdb[msid]['es_switch'][charkey]['state_code']
+                    states[setkey]['switchstate'] = tdb[msid]['es_switch'][intkey]['state_code']
                 except:
                     states[setkey]['switchstate'] = 'none'
 
