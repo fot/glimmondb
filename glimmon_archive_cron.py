@@ -105,7 +105,7 @@ if __name__ == '__main__':
             new_revision[0], new_revision[1]))
         print(f"{datestring}: New G_LIMMON.dec file copied")
 
-        tdbs = pickle.load(open(tdbfile, 'r'))
+        tdbs = pickle.load(open(tdbfile, 'rb'))
         glimmondb.merge_new_glimmon_to_db(newfile, tdbs)
         print(f"{datestring}:New G_LIMMON.dec merged into sqlite database")
 
