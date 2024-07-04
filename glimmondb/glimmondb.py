@@ -59,7 +59,7 @@ def get_tdb(tdbs=None, revision=000, return_dates=False):
                   'p010': '2012:089:20:00:00', 'p011': '2014:156:20:00:00',
                   'p012': '2014:338:21:00:00', 'p013': '2015:162:20:00:00',
                   'p014': '2015:239:20:00:00', 'p015': '2021:063:21:00:00',
-                  'p016': '2021:343:21:00:00'}
+                  'p016': '2021:343:21:00:00', 'p017': '2024:151:20:00:00'}
 
     if return_dates:
         return startdates
@@ -94,9 +94,12 @@ def get_tdb(tdbs=None, revision=000, return_dates=False):
         elif revision <= 359:  # p015 starts with 343 and ends with 359
             print ('Using P015')
             tdb = tdbs['p015']
-        elif revision <= 999:  # p016 starts with 360 and ends with ?
+        elif revision <= 407:  # p016 starts with 360 and ends with 407
             print ('Using P016')
             tdb = tdbs['p016']
+        elif revision <= 999:  # p017 starts with 408 and ends with ?
+            print ('Using P017')
+            tdb = tdbs['p017']
         return tdb
 
 
