@@ -4,36 +4,49 @@ import sqlite3
 import pickle as pickle
 import shutil
 import errno
+from pathlib import Path
+from os import environ
 from os.path import join as pathjoin
-from os import getenv, getcwd
 import numpy as np
 import re
 import logging
-# import imp
-# imp.reload(logging)  # avoids issue with ipython notebook
+
 
 from Chandra.Time import DateTime
 
-if getenv('GLIMMONDATA'):
-    DBDIR = getenv('GLIMMONDATA')
-elif getenv('SKA_DATA'):
-    DBDIR = pathjoin(getenv('SKA_DATA'), 'glimmon_archive/')
-else:
-    DBDIR = getcwd()
+def _require_path(primary_var, fallback_var=None, fallback_suffix=None):
+    """Return a Path from env vars and fail fast when missing or nonexistent."""
+    if environ.get(primary_var):
+        base_path = Path(environ[primary_var])
+    elif fallback_var and environ.get(fallback_var):
+        base_path = Path(environ[fallback_var])
+        if fallback_suffix:
+            base_path = base_path / fallback_suffix
+    else:
+        vars_list = [primary_var]
+        if fallback_var:
+            vars_list.append(fallback_var)
+        raise RuntimeError(f"Missing required environment variable(s): {', '.join(vars_list)}")
 
-if getenv('TDBDATA'):
-    TDBDIR = getenv('TDBDATA')
-elif getenv('SKA_DATA'):
-    TDBDIR = pathjoin(getenv('SKA_DATA'), 'fot_tdb_archive/')
-else:
-    TDBDIR = getcwd()
+    if not base_path.exists():
+        raise FileNotFoundError(f"Configured path does not exist: {base_path}")
+    return base_path
 
-logfile = pathjoin(DBDIR, 'DB_Commit.log')
-# try:
-#     with open(logfile) as fid:
-#         pass
-# except IOError:
-#     mknod(logfile)
+
+DBDIR = _require_path('GLIMMONDATA', 'SKA_DATA', 'glimmon_archive')
+TDBDIR = _require_path('TDBDATA', 'SKA_DATA', 'fot_tdb_archive')
+
+logfile = pathjoin(str(DBDIR), 'DB_Commit.log')
+
+
+def _load_pickle_file(filepath):
+    """Load a pickle file from disk with a minimal existence check."""
+    file_path = Path(filepath)
+    if not file_path.exists():
+        raise FileNotFoundError(f"Pickle file not found: {file_path}")
+    with file_path.open('rb') as fh:
+        return pickle.load(fh)
+
 
 logging.basicConfig(filename=logfile, level=logging.DEBUG,
                     format='%(asctime)s %(message)s')
@@ -67,7 +80,7 @@ def get_tdb(tdbs=None, revision=000, return_dates=False):
     else:
         if not tdbs:
             tdbfile = pathjoin(TDBDIR, "tdb_all.pkl")
-            tdbs = pickle.load(open(tdbfile, 'rb'))
+            tdbs = _load_pickle_file(tdbfile)
 
         revision = int(revision)
         if revision <= 130:
@@ -1011,7 +1024,7 @@ def recreate_db(glimmondbfile='glimmondb.sqlite3'):
     g['revision'] = '2.0'
 
     tdbfile = pathjoin(TDBDIR, 'tdb_all.pkl')
-    tdbs = pickle.load(open(tdbfile, 'rb'))
+    tdbs = _load_pickle_file(tdbfile)
     tdb = get_tdb(tdbs, g['revision'][2:])
 
     for msid in list(g.keys()):
