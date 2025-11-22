@@ -124,8 +124,8 @@ def read_glimmon(filename='/home/greta/AXAFSHARE/dec/G_LIMMON.dec'):
 
     """
 
-    revision_pattern = '\s*#\s*\$Revision\s*:\s*([0-9.]+).*$'
-    date_pattern = '.*\$Date\s*:\s*([0-9]+)/([0-9]+)/([0-9]+)\s+([0-9]+):([0-9]+):([0-9]+).*$'
+    revision_pattern = r'\s*#\s*\$Revision\s*:\s*([0-9.]+).*$'
+    date_pattern = r'.*\$Date\s*:\s*([0-9]+)/([0-9]+)/([0-9]+)\s+([0-9]+):([0-9]+):([0-9]+).*$'
 
     # Read the GLIMMON.dec file and store each line in "gfile"
     with open(filename, 'r') as fid:
