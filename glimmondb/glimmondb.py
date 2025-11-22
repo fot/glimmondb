@@ -9,8 +9,8 @@ from os import getenv, getcwd
 import numpy as np
 import re
 import logging
-import imp
-imp.reload(logging)  # avoids issue with ipython notebook
+# import imp
+# imp.reload(logging)  # avoids issue with ipython notebook
 
 from Chandra.Time import DateTime
 
@@ -112,8 +112,8 @@ def read_glimmon(filename='/home/greta/AXAFSHARE/dec/G_LIMMON.dec'):
 
     """
 
-    revision_pattern = '\s*#\s*\$Revision\s*:\s*([0-9.]+).*$'
-    date_pattern = '.*\$Date\s*:\s*([0-9]+)/([0-9]+)/([0-9]+)\s+([0-9]+):([0-9]+):([0-9]+).*$'
+    revision_pattern = r'\s*#\s*\$Revision\s*:\s*([0-9.]+).*$'
+    date_pattern = r'.*\$Date\s*:\s*([0-9]+)/([0-9]+)/([0-9]+)\s+([0-9]+):([0-9]+):([0-9]+).*$'
 
     # Read the GLIMMON.dec file and store each line in "gfile"
     with open(filename, 'r') as fid:
@@ -252,7 +252,7 @@ def fill_limits(tdb, g, msid):
     :param g: G_LIMMON datastructure (corresponding to a single version, e.g. 2.256)
     :param msid: Current MSID
 
-    There is no return value, the "g" datastructure is updated in place. 
+    There is no return value, the "g" datastructure is updated in place.
     """
 
     limits = assign_sets(tdb[msid]['limit'])
@@ -306,7 +306,7 @@ def fill_states(tdb, g, msid):
     :param g: G_LIMMON datastructure (corresponding to a single version, e.g. 2.256)
     :param msid: Current MSID
 
-    There is no return value, the "g" datastructure is updated in place. 
+    There is no return value, the "g" datastructure is updated in place.
     """
 
     states = assign_sets(tdb[msid]['exp_state'])
@@ -377,12 +377,12 @@ class GLimit(object):
 
     """ G_LIMMON instance for outputting es/limit data in row format.
 
-    This is used to convert the dictionary of es/limit data for each msid and set into 
+    This is used to convert the dictionary of es/limit data for each msid and set into
     line entries, where each line contains all the required information for each msid and set
     pair. This resulting format is how the sqlite3 database tables for limits and expected
     states (separate tables) are structured.
 
-    Remember that an MSID/Set pair defines a unique condition, for one point in time. 
+    Remember that an MSID/Set pair defines a unique condition, for one point in time.
 
     """
 
@@ -628,30 +628,30 @@ class NewLimitDB(object):
         cursor.execute("""DROP TABLE IF EXISTS limits""")
         cursor.execute("""CREATE TABLE limits(id INTEGER PRIMARY KEY, msid TEXT, setkey INTEGER, datesec REAL,
                           date TEXT, modversion INTEGER, mlmenable INTEGER, mlmtol INTEGER,
-                          default_set INTEGER, mlimsw TEXT, caution_high REAL, caution_low REAL, warning_high REAL, 
+                          default_set INTEGER, mlimsw TEXT, caution_high REAL, caution_low REAL, warning_high REAL,
                           warning_low REAL, switchstate TEXT)""")
         self.db.commit()
 
     def create_esstate_table(self):
         cursor = self.db.cursor()
         cursor.execute("""DROP TABLE IF EXISTS expected_states""")
-        cursor.execute("""CREATE TABLE expected_states(id INTEGER PRIMARY KEY, msid TEXT, setkey INTEGER, 
-                          datesec REAL, date TEXT, modversion INTEGER, mlmenable INTEGER, 
+        cursor.execute("""CREATE TABLE expected_states(id INTEGER PRIMARY KEY, msid TEXT, setkey INTEGER,
+                          datesec REAL, date TEXT, modversion INTEGER, mlmenable INTEGER,
                           mlmtol INTEGER, default_set INTEGER, mlimsw TEXT, expst TEXT, switchstate TEXT)""")
         self.db.commit()
 
     def fill_limit_data(self, limitrowdata):
         cursor = self.db.cursor()
         for row in limitrowdata:
-            cursor.execute("""INSERT INTO limits(msid, setkey, datesec, date, modversion, mlmenable, mlmtol, 
-                              default_set, mlimsw, caution_high, caution_low, warning_high, warning_low, 
+            cursor.execute("""INSERT INTO limits(msid, setkey, datesec, date, modversion, mlmenable, mlmtol,
+                              default_set, mlimsw, caution_high, caution_low, warning_high, warning_low,
                               switchstate) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", row)
         self.db.commit()
 
     def fill_esstate_data(self, esstaterowdata):
         cursor = self.db.cursor()
         for row in esstaterowdata:
-            cursor.execute("""INSERT INTO expected_states(msid, setkey, datesec, date, modversion, mlmenable, 
+            cursor.execute("""INSERT INTO expected_states(msid, setkey, datesec, date, modversion, mlmenable,
                               mlmtol, default_set, mlimsw, expst, switchstate) VALUES(?,?,?,?,?,?,?,?,?,?,?)""", row)
         self.db.commit()
 
@@ -673,7 +673,7 @@ def raise_tabletype_error(tabletype):
     """ Raise error if table name does not match either 'limit' or 'expected_state'.
 
     :param tabletype: Name of table (i.e. type of table) that was attempted
-    :raises ValueError: when wrong table name/type was attempted 
+    :raises ValueError: when wrong table name/type was attempted
     """
     s1 = "Argument 'tabletype' is entered as {}".format(tabletype)
     s2 = ", should be either 'limit' or 'expected_state'"
@@ -692,13 +692,13 @@ def query_all_cols_one_row_to_copy(db, msidset, tabletype):
     cursor = db.cursor()
     if tabletype.lower() == 'limit':
         cursor.execute("""SELECT a.msid, a.setkey, a.datesec, a.date, a.modversion, a.mlmenable, a.mlmtol, a.default_set,
-                          a.mlimsw, a.caution_high, a.caution_low, a.warning_high, a.warning_low, a.switchstate FROM limits AS a 
-                          WHERE a.modversion = (SELECT MAX(b.modversion) FROM limits AS b 
+                          a.mlimsw, a.caution_high, a.caution_low, a.warning_high, a.warning_low, a.switchstate FROM limits AS a
+                          WHERE a.modversion = (SELECT MAX(b.modversion) FROM limits AS b
                           WHERE a.msid=b.msid AND b.msid=? AND a.setkey=b.setkey and b.setkey=?) """, msidset)
     elif tabletype.lower() == 'expected_state':
         cursor.execute("""SELECT a.msid, a.setkey, a.datesec, a.date, a.modversion, a.mlmenable, a.mlmtol, a.default_set,
-                          a.mlimsw, a.expst, a.switchstate FROM expected_states AS a 
-                          WHERE a.modversion = (SELECT MAX(b.modversion) FROM expected_states AS b 
+                          a.mlimsw, a.expst, a.switchstate FROM expected_states AS a
+                          WHERE a.modversion = (SELECT MAX(b.modversion) FROM expected_states AS b
                           WHERE a.msid=b.msid AND b.msid=? AND a.setkey=b.setkey and b.setkey=?) """, msidset)
     else:
         raise_tabletype_error(tabletype)
@@ -719,11 +719,11 @@ def query_most_recent_msids_sets(db, tabletype):
     """
     cursor = db.cursor()
     if tabletype.lower() == 'limit':
-        cursor.execute("""SELECT a.msid, a.setkey FROM limits AS a 
+        cursor.execute("""SELECT a.msid, a.setkey FROM limits AS a
                           WHERE a.modversion = (SELECT MAX(b.modversion) FROM limits AS b
                           WHERE a.msid = b.msid and a.setkey = b.setkey) """)
     elif tabletype.lower() == 'expected_state':
-        cursor.execute("""SELECT a.msid, a.setkey FROM expected_states AS a 
+        cursor.execute("""SELECT a.msid, a.setkey FROM expected_states AS a
                           WHERE a.modversion = (SELECT MAX(b.modversion) FROM expected_states AS b
                           WHERE a.msid = b.msid and a.setkey = b.setkey) """)
     else:
@@ -737,7 +737,7 @@ def query_most_recent_disabled_msids_sets(db, tabletype):
     :param db: sqlite3 database connection
     :param tabletype: 'limit' or 'expected_state'
 
-    :returns: list of all msid/set pairs that have ever been disabled. 
+    :returns: list of all msid/set pairs that have ever been disabled.
 
     The database qurey code below selects the most recent disabled pair only as a way to filter
     out repeated data.
@@ -772,13 +772,13 @@ def query_most_recent_changeable_data(db, tabletype):
     """
     cursor = db.cursor()
     if tabletype.lower() == 'limit':
-        cursor.execute("""SELECT a.msid, a.setkey, a.mlmenable, a.mlmtol, a.default_set, a.mlimsw, a.caution_high, 
-                          a.caution_low, a.warning_high, a.warning_low, a.switchstate FROM limits AS a 
+        cursor.execute("""SELECT a.msid, a.setkey, a.mlmenable, a.mlmtol, a.default_set, a.mlimsw, a.caution_high,
+                          a.caution_low, a.warning_high, a.warning_low, a.switchstate FROM limits AS a
                           WHERE a.modversion = (SELECT MAX(b.modversion) FROM limits AS b
                           WHERE a.msid = b.msid and a.setkey = b.setkey) """)
     elif tabletype.lower() == 'expected_state':
-        cursor.execute("""SELECT a.msid, a.setkey, a.mlmenable, a.mlmtol, a.default_set, a.mlimsw, a.expst, a.switchstate 
-                          FROM expected_states AS a 
+        cursor.execute("""SELECT a.msid, a.setkey, a.mlmenable, a.mlmtol, a.default_set, a.mlimsw, a.expst, a.switchstate
+                          FROM expected_states AS a
                           WHERE a.modversion = (SELECT MAX(b.modversion) FROM expected_states AS b
                           WHERE a.msid = b.msid and a.setkey = b.setkey) """)
     else:
@@ -798,13 +798,13 @@ def commit_new_rows(db, rows, tabletype):
     if tabletype.lower() == 'limit':
         for row in rows:
             oldcursor.execute("""INSERT INTO limits(msid, setkey, datesec, date, modversion, mlmenable, mlmtol,
-                                 default_set, mlimsw, caution_high, caution_low, warning_high, warning_low, switchstate) 
+                                 default_set, mlimsw, caution_high, caution_low, warning_high, warning_low, switchstate)
                                  VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", row)
             logging.info('    Added new row:{}.'.format(row))
 
     elif tabletype.lower() == 'expected_state':
         for row in rows:
-            oldcursor.execute("""INSERT INTO expected_states(msid, setkey, datesec, date, modversion, mlmenable, 
+            oldcursor.execute("""INSERT INTO expected_states(msid, setkey, datesec, date, modversion, mlmenable,
                                  mlmtol, default_set, mlimsw, expst, switchstate) VALUES(?,?,?,?,?,?,?,?,?,?,?)""", row)
             logging.info('    Added new row:{}.'.format(row))
     else:
