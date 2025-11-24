@@ -30,6 +30,9 @@ try:
 except:
     print('Could not delete old log')
 import glimmondb
+from glimmondb import get_logger
+
+logger = get_logger(__name__, tabletype='test')
 
 print('\nRegenerated testing folder at: ./testing_data')
 print(('Using G_LIMMON Archive at: {}'.format(glimmondb.DBDIR)))
@@ -113,6 +116,19 @@ def test_function():
         new_all_limits_second, new_all_states_second, new_all_versions_second)
     oldlimithash, oldstatehash, oldversionhash = gethashes(old_all_limits, old_all_states,
                                                            old_all_versions)
+
+    logger.info('Computed hashes for new recreation', extra={'label': 'new',
+                                                             'limit_hash': newlimithash,
+                                                             'state_hash': newstatehash,
+                                                             'version_hash': newversionhash})
+    logger.info('Computed hashes for second recreation', extra={'label': 'new_second',
+                                                                'limit_hash': newlimithash_second,
+                                                                'state_hash': newstatehash_second,
+                                                                'version_hash': newversionhash_second})
+    logger.info('Computed hashes for existing database', extra={'label': 'existing',
+                                                                'limit_hash': oldlimithash,
+                                                                'state_hash': oldstatehash,
+                                                                'version_hash': oldversionhash})
 
     print(('newlimithash = {}\nnewstatehash = {}\nnewversionhash = {}'.format(newlimithash,
                                                                              newstatehash,

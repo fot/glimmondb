@@ -7,9 +7,11 @@ import errno
 from pathlib import Path
 from os import environ
 from os.path import join as pathjoin
+import json
 import numpy as np
 import re
 import logging
+from logging import LoggerAdapter
 
 
 from Chandra.Time import DateTime
@@ -48,9 +50,40 @@ def _load_pickle_file(filepath):
         return pickle.load(fh)
 
 
-logging.basicConfig(filename=logfile, level=logging.DEBUG,
-                    format='%(asctime)s %(message)s')
-logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
+class JsonFormatter(logging.Formatter):
+    """Minimal JSON formatter for structured logs."""
+
+    def format(self, record):
+        data = {
+            "timestamp": self.formatTime(record, self.datefmt),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+        }
+        standard_keys = set(logging.LogRecord("logger", logging.INFO, "", 0, "", (), None).__dict__.keys())
+        for key, value in record.__dict__.items():
+            if key not in standard_keys and key not in ("message", "asctime"):
+                data[key] = value
+        return json.dumps(data, default=str)
+
+
+def get_logger(name=None, **context):
+    """Return a context-aware logger; configure handlers once."""
+    root = logging.getLogger()
+    if not root.handlers:
+        root.setLevel(logging.DEBUG)
+        file_handler = logging.FileHandler(logfile)
+        stream_handler = logging.StreamHandler(sys.stdout)
+        formatter = JsonFormatter()
+        file_handler.setFormatter(formatter)
+        stream_handler.setFormatter(formatter)
+        root.addHandler(file_handler)
+        root.addHandler(stream_handler)
+    base_logger = logging.getLogger(name)
+    return LoggerAdapter(base_logger, context)
+
+
+logger = get_logger(__name__)
 
 
 def get_tdb(tdbs=None, revision=000, return_dates=False):
@@ -457,9 +490,10 @@ class GLimit(object):
 
                     textinsert1 = '     WARNING: {} has no limits or expected states '.format(msid)
                     textinsert2 = 'defined in the database or G_LIMMON, yet is enabled in G_LIMMON'
-                    logging.info('')
-                    logging.info(textinsert1 + textinsert2)
-                    logging.info('              {} will be removed'.format(msid))
+                    msid_logger = get_logger(__name__, msid=msid.lower(),
+                                             revision=self.revision, date=self.date)
+                    msid_logger.warning(textinsert1 + textinsert2)
+                    msid_logger.warning('{} will be removed'.format(msid))
 
                 elif mdata['type'].lower() == 'limit':
                     for setkey in mdata['setkeys']:
@@ -819,13 +853,17 @@ def commit_new_rows(db, rows, tabletype):
             oldcursor.execute("""INSERT INTO limits(msid, setkey, datesec, date, modversion, mlmenable, mlmtol,
                                  default_set, mlimsw, caution_high, caution_low, warning_high, warning_low, switchstate)
                                  VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", row)
-            logging.info('    Added new row:{}.'.format(row))
+            row_logger = get_logger(__name__, msid=row[0], setkey=row[1], datesec=row[2],
+                                    revision=row[4], tabletype=tabletype)
+            row_logger.info('Added limit row')
 
     elif tabletype.lower() == 'expected_state':
         for row in rows:
             oldcursor.execute("""INSERT INTO expected_states(msid, setkey, datesec, date, modversion, mlmenable,
                                  mlmtol, default_set, mlimsw, expst, switchstate) VALUES(?,?,?,?,?,?,?,?,?,?,?)""", row)
-            logging.info('    Added new row:{}.'.format(row))
+            row_logger = get_logger(__name__, msid=row[0], setkey=row[1], datesec=row[2],
+                                    revision=row[4], tabletype=tabletype)
+            row_logger.info('Added expected_state row')
     else:
         raise_tabletype_error(tabletype)
 
@@ -851,6 +889,9 @@ def commit_new_version_row(olddb, newdb):
     oldcursor = olddb.cursor()
     oldcursor.execute(
         """INSERT INTO versions(version, datesec, date) VALUES(?,?,?)""", (version, datesec, date))
+    version_logger = get_logger(__name__, tabletype='versions', revision=version, datesec=datesec,
+                                version_date=date)
+    version_logger.info('Committed version row')
     olddb.commit()
 
 
@@ -864,13 +905,13 @@ def add_merge_logging_text(tabletype, functiontype, newlen, oldlen, addlen):
 
     formatted_tabletype = ' '.join([s.capitalize() for s in tabletype.split('_')])
     formatted_functiontype = functiontype.capitalize()
-    logging.info('========== Comparing New and Current {}s Table For {} MSID Sets =========='
-                 .format(formatted_tabletype, formatted_functiontype))
-    logging.debug('Number of {} rows in new DB:{}.'.format(formatted_tabletype, newlen))
-    logging.debug('Number of {} rows in current DB:{}.'.format(formatted_tabletype, oldlen))
-    logging.info('Number of rows to be {} for newly added msid sets: {}.'
-                 .format(formatted_functiontype, addlen))
-    logging.info('---------- Append Rows For {} MSID Sets ----------'.format(formatted_tabletype))
+    merge_logger = get_logger(__name__, tabletype=tabletype)
+    merge_logger.info('Comparing new and current %s table for %s msid sets',
+                      formatted_tabletype, formatted_functiontype)
+    merge_logger.debug('Row counts new=%s current=%s', newlen, oldlen)
+    merge_logger.info('Rows to be %s for newly added msid sets: %s',
+                      formatted_functiontype.lower(), addlen)
+    merge_logger.info('Appending rows for %s msid sets', formatted_tabletype)
 
 
 def merge_added_msidsets(newdb, olddb, tabletype):
@@ -1012,8 +1053,9 @@ def recreate_db(glimmondbfile='glimmondb.sqlite3'):
         db_filename = pathjoin(DBDIR, glimmondbfile)
         copy_anything(temp_filename, db_filename)
 
-        logging.info(
-            '========================= glimmondb.sqlite3 Initialized =========================\n')
+        init_logger = get_logger(__name__, tabletype='initialization',
+                                 db_filename=glimmondbfile)
+        init_logger.info('Initialized %s', glimmondbfile)
 
     def get_glimmon_arch_filenames():
         glimmon_files = glob.glob(pathjoin(DBDIR, 'G_LIMMON_2.*.dec'))
@@ -1075,8 +1117,11 @@ def merge_new_glimmon_to_db(filename, tdbs, glimmondbfile='glimmondb.sqlite3'):
     oldver = oldcursor.fetchone()[0]
 
     textinsert = 'Comparing New (v{}) and Current (v{}) G_LIMMON Databases'.format(newver, oldver)
-    logging.info('')
-    logging.info('                        ========== {} =========='.format(textinsert))
+    import_logger = get_logger(__name__, revision=newver, tabletype='version',
+                               glimmon_filename=filename)
+    import_logger.info('Imported G_LIMMON file %s with revision %s and date %s',
+                       filename, g.get('revision'), g.get('date'))
+    import_logger.info(textinsert)
 
     newdb = create_db(g)
 
