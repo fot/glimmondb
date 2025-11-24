@@ -41,16 +41,17 @@ def querydatabase(glimmondbfile, datecheckbefore):
 
     cursor.execute('''SELECT msid, setkey, datesec, date, modversion, mlmenable, mlmtol, 
                       default_set, mlimsw, caution_high, caution_low, warning_high, warning_low,
-                      switchstate FROM limits WHERE datesec < ?''', (datecheckbefore,))
+                      switchstate FROM limits WHERE datesec < ? ORDER BY datesec, msid, setkey''',
+                   (datecheckbefore,))
     all_limits = cursor.fetchall()
 
     cursor.execute('''SELECT msid, setkey, datesec, date, modversion, mlmenable, mlmtol,
                       default_set, mlimsw, expst, switchstate FROM expected_states WHERE 
-                      datesec < ?''', (datecheckbefore,))
+                      datesec < ? ORDER BY datesec, msid, setkey''', (datecheckbefore,))
     all_states = cursor.fetchall()
 
-    cursor.execute('''SELECT version, datesec, date FROM versions WHERE datesec < ?''',
-                      (datecheckbefore,))
+    cursor.execute('''SELECT version, datesec, date FROM versions WHERE datesec < ? 
+                      ORDER BY datesec, version''', (datecheckbefore,))
     all_versions = cursor.fetchall()
 
     db.close()
@@ -89,26 +90,43 @@ def test_function():
     glimmondb.recreate_db(glimmondbfile='glimmondb_testing.sqlite3')
     copy('./testing_data/glimmondb_testing.sqlite3', './glimmondb_testing_backup.sqlite3')
 
+    # Recreate a second time to validate deterministic outputs across runs
+    glimmondb.recreate_db(glimmondbfile='glimmondb_testing_second.sqlite3')
+
     new_all_limits, new_all_states, new_all_versions = querydatabase(pathjoin(glimmondb.DBDIR, 
         'glimmondb_testing.sqlite3'), datecheckbefore)
+
+    new_all_limits_second, new_all_states_second, new_all_versions_second = querydatabase(
+        pathjoin(glimmondb.DBDIR, 'glimmondb_testing_second.sqlite3'), datecheckbefore)
 
     old_all_limits, old_all_states, old_all_versions = querydatabase(pathjoin(glimmondb.DBDIR, 
         'glimmondb.sqlite3'), datecheckbefore)
 
     saveoutputs(new_all_limits, new_all_states, new_all_versions, prestr='new')
-    saveoutputs(old_all_limits, old_all_states, old_all_versions, prestr='new')
+    saveoutputs(new_all_limits_second, new_all_states_second, new_all_versions_second,
+                prestr='new_second')
+    saveoutputs(old_all_limits, old_all_states, old_all_versions, prestr='old')
 
     newlimithash, newstatehash, newversionhash = gethashes(new_all_limits, new_all_states, 
                                                            new_all_versions)
+    newlimithash_second, newstatehash_second, newversionhash_second = gethashes(
+        new_all_limits_second, new_all_states_second, new_all_versions_second)
     oldlimithash, oldstatehash, oldversionhash = gethashes(old_all_limits, old_all_states,
                                                            old_all_versions)
 
     print(('newlimithash = {}\nnewstatehash = {}\nnewversionhash = {}'.format(newlimithash,
                                                                              newstatehash,
                                                                              newversionhash)))
+    print(('newlimithash_second = {}\nnewstatehash_second = {}\nnewversionhash_second = {}'
+           .format(newlimithash_second, newstatehash_second, newversionhash_second)))
     print(('oldlimithash = {}\noldstatehash = {}\noldversionhash = {}'.format(oldlimithash,
                                                                              oldstatehash,
                                                                              oldversionhash)))
+
+    # Deterministic across recreations
+    assert newlimithash == newlimithash_second
+    assert newstatehash == newstatehash_second
+    assert newversionhash == newversionhash_second
 
     assert oldlimithash == newlimithash
     assert oldstatehash == newstatehash

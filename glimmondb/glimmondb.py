@@ -732,13 +732,15 @@ def query_most_recent_msids_sets(db, tabletype):
     """
     cursor = db.cursor()
     if tabletype.lower() == 'limit':
-        cursor.execute("""SELECT a.msid, a.setkey FROM limits AS a
+        cursor.execute("""SELECT a.msid, a.setkey FROM limits AS a 
                           WHERE a.modversion = (SELECT MAX(b.modversion) FROM limits AS b
-                          WHERE a.msid = b.msid and a.setkey = b.setkey) """)
+                          WHERE a.msid = b.msid and a.setkey = b.setkey) 
+                          ORDER BY a.datesec, a.msid, a.setkey""")
     elif tabletype.lower() == 'expected_state':
-        cursor.execute("""SELECT a.msid, a.setkey FROM expected_states AS a
+        cursor.execute("""SELECT a.msid, a.setkey FROM expected_states AS a 
                           WHERE a.modversion = (SELECT MAX(b.modversion) FROM expected_states AS b
-                          WHERE a.msid = b.msid and a.setkey = b.setkey) """)
+                          WHERE a.msid = b.msid and a.setkey = b.setkey) 
+                          ORDER BY a.datesec, a.msid, a.setkey""")
     else:
         raise_tabletype_error(tabletype)
     return cursor.fetchall()
@@ -760,11 +762,13 @@ def query_most_recent_disabled_msids_sets(db, tabletype):
     if tabletype.lower() == 'limit':
         cursor.execute("""SELECT a.msid, a.setkey FROM limits AS a WHERE a.mlmenable = 0 AND
                           a.modversion = (SELECT MAX(b.modversion) FROM limits AS b
-                          WHERE a.msid = b.msid and a.setkey = b.setkey) """)
+                          WHERE a.msid = b.msid and a.setkey = b.setkey) 
+                          ORDER BY a.datesec, a.msid, a.setkey""")
     elif tabletype.lower() == 'expected_state':
         cursor.execute("""SELECT a.msid, a.setkey FROM expected_states AS a WHERE a.mlmenable = 0 AND
                           a.modversion = (SELECT MAX(b.modversion) FROM expected_states AS b
-                          WHERE a.msid = b.msid and a.setkey = b.setkey) """)
+                          WHERE a.msid = b.msid and a.setkey = b.setkey) 
+                          ORDER BY a.datesec, a.msid, a.setkey""")
     else:
         raise_tabletype_error(tabletype)
     return cursor.fetchall()
@@ -785,15 +789,17 @@ def query_most_recent_changeable_data(db, tabletype):
     """
     cursor = db.cursor()
     if tabletype.lower() == 'limit':
-        cursor.execute("""SELECT a.msid, a.setkey, a.mlmenable, a.mlmtol, a.default_set, a.mlimsw, a.caution_high,
-                          a.caution_low, a.warning_high, a.warning_low, a.switchstate FROM limits AS a
+        cursor.execute("""SELECT a.msid, a.setkey, a.mlmenable, a.mlmtol, a.default_set, a.mlimsw, a.caution_high, 
+                          a.caution_low, a.warning_high, a.warning_low, a.switchstate FROM limits AS a 
                           WHERE a.modversion = (SELECT MAX(b.modversion) FROM limits AS b
-                          WHERE a.msid = b.msid and a.setkey = b.setkey) """)
+                          WHERE a.msid = b.msid and a.setkey = b.setkey) 
+                          ORDER BY a.datesec, a.msid, a.setkey""")
     elif tabletype.lower() == 'expected_state':
-        cursor.execute("""SELECT a.msid, a.setkey, a.mlmenable, a.mlmtol, a.default_set, a.mlimsw, a.expst, a.switchstate
-                          FROM expected_states AS a
+        cursor.execute("""SELECT a.msid, a.setkey, a.mlmenable, a.mlmtol, a.default_set, a.mlimsw, a.expst, a.switchstate 
+                          FROM expected_states AS a 
                           WHERE a.modversion = (SELECT MAX(b.modversion) FROM expected_states AS b
-                          WHERE a.msid = b.msid and a.setkey = b.setkey) """)
+                          WHERE a.msid = b.msid and a.setkey = b.setkey) 
+                          ORDER BY a.datesec, a.msid, a.setkey""")
     else:
         raise_tabletype_error(tabletype)
     return cursor.fetchall()
@@ -880,7 +886,8 @@ def merge_added_msidsets(newdb, olddb, tabletype):
     all_old_rows = query_most_recent_msids_sets(olddb, tabletype)
 
     # what is in newrows but not in oldrows
-    not_in_oldrows = set(all_new_rows).difference(set(all_old_rows))
+    not_in_oldrows = sorted(
+        set(all_new_rows).difference(set(all_old_rows)), key=lambda row: (row[0], row[1]))
     addrows = []
     for msidset in not_in_oldrows:
         addrow = query_all_cols_one_row_to_copy(newdb, msidset, tabletype)
@@ -909,11 +916,13 @@ def merge_deleted_msidsets(newdb, olddb, tabletype):
     all_old_rows = query_most_recent_msids_sets(olddb, tabletype)
     all_old_disabled_rows = query_most_recent_disabled_msids_sets(olddb, tabletype)
 
-    disabled_not_in_newrows = set(all_old_disabled_rows).difference(set(all_new_rows))
+    disabled_not_in_newrows = sorted(
+        set(all_old_disabled_rows).difference(set(all_new_rows)), key=lambda row: (row[0], row[1]))
     all_new_rows.extend(list(disabled_not_in_newrows))
 
     # what is in oldrows but not in newrows
-    not_in_newrows = set(all_old_rows).difference(set(all_new_rows))
+    not_in_newrows = sorted(
+        set(all_old_rows).difference(set(all_new_rows)), key=lambda row: (row[0], row[1]))
     deactivaterows = []
     for msidset in not_in_newrows:
         deactrow = query_all_cols_one_row_to_copy(olddb, msidset, tabletype)
@@ -941,7 +950,8 @@ def merge_modified_msidsets(newdb, olddb, tabletype):
     all_old_rows = query_most_recent_changeable_data(olddb, tabletype)
 
     # what is in newrows but not in oldrows
-    modified_rows = set(all_new_rows).difference(set(all_old_rows))
+    modified_rows = sorted(
+        set(all_new_rows).difference(set(all_old_rows)), key=lambda row: (row[0], row[1]))
     modrows = []
     newcursor = newdb.cursor()
     for msidset in modified_rows:
