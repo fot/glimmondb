@@ -12,6 +12,7 @@ import numpy as np
 import re
 import logging
 from logging import LoggerAdapter
+from hashlib import sha256
 
 
 from Chandra.Time import DateTime
@@ -71,12 +72,20 @@ def get_logger(name=None, **context):
     """Return a context-aware logger; configure handlers once."""
     root = logging.getLogger()
     if not root.handlers:
-        root.setLevel(logging.DEBUG)
+        stream_level_name = environ.get('GLIMMON_STREAM_LEVEL', 'INFO').upper()
+        file_level_name = environ.get('GLIMMON_FILE_LEVEL', 'DEBUG').upper()
+        stream_level = getattr(logging, stream_level_name, logging.INFO)
+        file_level = getattr(logging, file_level_name, logging.DEBUG)
+
+        # Set root to the most verbose so handlers can filter appropriately.
+        root.setLevel(min(stream_level, file_level))
         file_handler = logging.FileHandler(logfile)
         stream_handler = logging.StreamHandler(sys.stdout)
         formatter = JsonFormatter()
         file_handler.setFormatter(formatter)
         stream_handler.setFormatter(formatter)
+        file_handler.setLevel(file_level)
+        stream_handler.setLevel(stream_level)
         root.addHandler(file_handler)
         root.addHandler(stream_handler)
     base_logger = logging.getLogger(name)
@@ -84,6 +93,102 @@ def get_logger(name=None, **context):
 
 
 logger = get_logger(__name__)
+
+
+def _compute_hash(rows):
+    return sha256(str(rows).encode('utf-8')).hexdigest()
+
+
+def _compute_file_hash(filepath):
+    h = sha256()
+    path_obj = Path(filepath)
+    with path_obj.open('rb') as fh:
+        for chunk in iter(lambda: fh.read(8192), b''):
+            h.update(chunk)
+    return h.hexdigest(), path_obj.stat().st_size
+
+
+def ensure_fingerprint_table(db):
+    cursor = db.cursor()
+    cursor.execute(
+        """CREATE TABLE IF NOT EXISTS build_fingerprints(
+           id INTEGER PRIMARY KEY,
+           version INTEGER UNIQUE,
+           limit_hash TEXT,
+           state_hash TEXT,
+           version_hash TEXT,
+           limit_count INTEGER,
+           state_count INTEGER,
+           version_count INTEGER,
+           db_sha256 TEXT,
+           db_size_bytes INTEGER,
+           source_file TEXT,
+           source_revision TEXT,
+           source_date TEXT,
+           created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )"""
+    )
+    db.commit()
+
+
+def compute_fingerprints(db_path, source_file=None, source_revision=None, source_date=None):
+    """Compute deterministic hashes/counts for key tables and the DB file."""
+    db = sqlite3.connect(db_path)
+    ensure_fingerprint_table(db)
+    cursor = db.cursor()
+    limit_query = """SELECT msid, setkey, datesec, date, modversion, mlmenable, mlmtol,
+                     default_set, mlimsw, caution_high, caution_low, warning_high, warning_low,
+                     switchstate FROM limits ORDER BY datesec, msid, setkey"""
+    state_query = """SELECT msid, setkey, datesec, date, modversion, mlmenable, mlmtol,
+                     default_set, mlimsw, expst, switchstate FROM expected_states
+                     ORDER BY datesec, msid, setkey"""
+    version_query = """SELECT version, datesec, date FROM versions ORDER BY datesec, version"""
+
+    cursor.execute(limit_query)
+    limit_rows = cursor.fetchall()
+    limit_hash = _compute_hash(limit_rows)
+
+    cursor.execute(state_query)
+    state_rows = cursor.fetchall()
+    state_hash = _compute_hash(state_rows)
+
+    cursor.execute(version_query)
+    version_rows = cursor.fetchall()
+    version_hash = _compute_hash(version_rows)
+
+    cursor.execute("""SELECT MAX(version) FROM versions""")
+    current_version = cursor.fetchone()[0]
+
+    db_sha, db_size = _compute_file_hash(db_path)
+
+    cursor.execute(
+        """INSERT OR REPLACE INTO build_fingerprints(
+           version, limit_hash, state_hash, version_hash,
+           limit_count, state_count, version_count,
+           db_sha256, db_size_bytes,
+           source_file, source_revision, source_date
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (current_version, limit_hash, state_hash, version_hash,
+         len(limit_rows), len(state_rows), len(version_rows),
+         db_sha, db_size, source_file, source_revision, str(source_date))
+    )
+    db.commit()
+
+    fingerprint_logger = get_logger(__name__, tabletype='fingerprint', revision=current_version)
+    fingerprint_logger.info('Database fingerprint computed',
+                            extra={'limit_hash': limit_hash,
+                                   'state_hash': state_hash,
+                                   'version_hash': version_hash,
+                                   'limit_count': len(limit_rows),
+                                   'state_count': len(state_rows),
+                                   'version_count': len(version_rows),
+                                   'db_sha256': db_sha,
+                                   'db_size_bytes': db_size,
+                                   'source_file': source_file,
+                                   'source_revision': source_revision,
+                                   'source_date': source_date})
+
+    db.close()
 
 
 def get_tdb(tdbs=None, revision=000, return_dates=False):
@@ -663,6 +768,7 @@ class NewLimitDB(object):
         self.fill_esstate_data(esstaterowdata)
         self.create_version_table()
         self.fill_version_data(version, date, datesec)
+        ensure_fingerprint_table(self.db)
 
     def __enter__(self):
         return self
@@ -1056,6 +1162,9 @@ def recreate_db(glimmondbfile='glimmondb.sqlite3'):
         init_logger = get_logger(__name__, tabletype='initialization',
                                  db_filename=glimmondbfile)
         init_logger.info('Initialized %s', glimmondbfile)
+        compute_fingerprints(db_filename, source_file="G_LIMMON_P007A.dec",
+                             source_revision=gdb.get('revision'),
+                             source_date=gdb.get('date'))
 
     def get_glimmon_arch_filenames():
         glimmon_files = glob.glob(pathjoin(DBDIR, 'G_LIMMON_2.*.dec'))
@@ -1136,6 +1245,8 @@ def merge_new_glimmon_to_db(filename, tdbs, glimmondbfile='glimmondb.sqlite3'):
     merge_modified_msidsets(newdb, olddb, 'expected_state')
 
     commit_new_version_row(olddb, newdb)
+    compute_fingerprints(glimmondb_filename, source_file=filename,
+                         source_revision=g.get('revision'), source_date=g.get('date'))
 
     newdb.close()
     olddb.close()
