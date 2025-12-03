@@ -1,0 +1,9 @@
+# Ignore local testing data and Python cache
+testing_data/
+__pycache__/
+*.pyc
+
+# OS/editor cruft
+.DS_Store
+.idea/
+.vscode/

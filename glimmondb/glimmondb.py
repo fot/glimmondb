@@ -7,9 +7,12 @@ import errno
 from pathlib import Path
 from os import environ
 from os.path import join as pathjoin
+import json
 import numpy as np
 import re
 import logging
+from logging import LoggerAdapter
+from hashlib import sha256
 
 
 from Chandra.Time import DateTime
@@ -48,9 +51,144 @@ def _load_pickle_file(filepath):
         return pickle.load(fh)
 
 
-logging.basicConfig(filename=logfile, level=logging.DEBUG,
-                    format='%(asctime)s %(message)s')
-logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
+class JsonFormatter(logging.Formatter):
+    """Minimal JSON formatter for structured logs."""
+
+    def format(self, record):
+        data = {
+            "timestamp": self.formatTime(record, self.datefmt),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+        }
+        standard_keys = set(logging.LogRecord("logger", logging.INFO, "", 0, "", (), None).__dict__.keys())
+        for key, value in record.__dict__.items():
+            if key not in standard_keys and key not in ("message", "asctime"):
+                data[key] = value
+        return json.dumps(data, default=str)
+
+
+def get_logger(name=None, **context):
+    """Return a context-aware logger; configure handlers once."""
+    root = logging.getLogger()
+    if not root.handlers:
+        stream_level_name = environ.get('GLIMMON_STREAM_LEVEL', 'INFO').upper()
+        file_level_name = environ.get('GLIMMON_FILE_LEVEL', 'DEBUG').upper()
+        stream_level = getattr(logging, stream_level_name, logging.INFO)
+        file_level = getattr(logging, file_level_name, logging.DEBUG)
+
+        # Set root to the most verbose so handlers can filter appropriately.
+        root.setLevel(min(stream_level, file_level))
+        file_handler = logging.FileHandler(logfile)
+        stream_handler = logging.StreamHandler(sys.stdout)
+        formatter = JsonFormatter()
+        file_handler.setFormatter(formatter)
+        stream_handler.setFormatter(formatter)
+        file_handler.setLevel(file_level)
+        stream_handler.setLevel(stream_level)
+        root.addHandler(file_handler)
+        root.addHandler(stream_handler)
+    base_logger = logging.getLogger(name)
+    return LoggerAdapter(base_logger, context)
+
+
+logger = get_logger(__name__)
+
+
+def _compute_hash(rows):
+    return sha256(str(rows).encode('utf-8')).hexdigest()
+
+
+def _compute_file_hash(filepath):
+    h = sha256()
+    path_obj = Path(filepath)
+    with path_obj.open('rb') as fh:
+        for chunk in iter(lambda: fh.read(8192), b''):
+            h.update(chunk)
+    return h.hexdigest(), path_obj.stat().st_size
+
+
+def ensure_fingerprint_table(db):
+    cursor = db.cursor()
+    cursor.execute(
+        """CREATE TABLE IF NOT EXISTS build_fingerprints(
+           id INTEGER PRIMARY KEY,
+           version INTEGER UNIQUE,
+           limit_hash TEXT,
+           state_hash TEXT,
+           version_hash TEXT,
+           limit_count INTEGER,
+           state_count INTEGER,
+           version_count INTEGER,
+           db_sha256 TEXT,
+           db_size_bytes INTEGER,
+           source_file TEXT,
+           source_revision TEXT,
+           source_date TEXT,
+           created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )"""
+    )
+    db.commit()
+
+
+def compute_fingerprints(db_path, source_file=None, source_revision=None, source_date=None):
+    """Compute deterministic hashes/counts for key tables and the DB file."""
+    db = sqlite3.connect(db_path)
+    ensure_fingerprint_table(db)
+    cursor = db.cursor()
+    limit_query = """SELECT msid, setkey, datesec, date, modversion, mlmenable, mlmtol,
+                     default_set, mlimsw, caution_high, caution_low, warning_high, warning_low,
+                     switchstate FROM limits ORDER BY datesec, msid, setkey"""
+    state_query = """SELECT msid, setkey, datesec, date, modversion, mlmenable, mlmtol,
+                     default_set, mlimsw, expst, switchstate FROM expected_states
+                     ORDER BY datesec, msid, setkey"""
+    version_query = """SELECT version, datesec, date FROM versions ORDER BY datesec, version"""
+
+    cursor.execute(limit_query)
+    limit_rows = cursor.fetchall()
+    limit_hash = _compute_hash(limit_rows)
+
+    cursor.execute(state_query)
+    state_rows = cursor.fetchall()
+    state_hash = _compute_hash(state_rows)
+
+    cursor.execute(version_query)
+    version_rows = cursor.fetchall()
+    version_hash = _compute_hash(version_rows)
+
+    cursor.execute("""SELECT MAX(version) FROM versions""")
+    current_version = cursor.fetchone()[0]
+
+    db_sha, db_size = _compute_file_hash(db_path)
+
+    cursor.execute(
+        """INSERT OR REPLACE INTO build_fingerprints(
+           version, limit_hash, state_hash, version_hash,
+           limit_count, state_count, version_count,
+           db_sha256, db_size_bytes,
+           source_file, source_revision, source_date
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (current_version, limit_hash, state_hash, version_hash,
+         len(limit_rows), len(state_rows), len(version_rows),
+         db_sha, db_size, source_file, source_revision, str(source_date))
+    )
+    db.commit()
+
+    fingerprint_logger = get_logger(__name__, tabletype='fingerprint', revision=current_version)
+    fingerprint_logger.info('Database fingerprint computed',
+                            extra={'limit_hash': limit_hash,
+                                   'state_hash': state_hash,
+                                   'version_hash': version_hash,
+                                   'limit_count': len(limit_rows),
+                                   'state_count': len(state_rows),
+                                   'version_count': len(version_rows),
+                                   'db_sha256': db_sha,
+                                   'db_size_bytes': db_size,
+                                   'source_file': source_file,
+                                   'source_revision': source_revision,
+                                   'source_date': source_date})
+
+    db.close()
 
 
 def get_tdb(tdbs=None, revision=000, return_dates=False):
@@ -457,9 +595,10 @@ class GLimit(object):
 
                     textinsert1 = '     WARNING: {} has no limits or expected states '.format(msid)
                     textinsert2 = 'defined in the database or G_LIMMON, yet is enabled in G_LIMMON'
-                    logging.info('')
-                    logging.info(textinsert1 + textinsert2)
-                    logging.info('              {} will be removed'.format(msid))
+                    msid_logger = get_logger(__name__, msid=msid.lower(),
+                                             revision=self.revision, date=self.date)
+                    msid_logger.warning(textinsert1 + textinsert2)
+                    msid_logger.warning('{} will be removed'.format(msid))
 
                 elif mdata['type'].lower() == 'limit':
                     for setkey in mdata['setkeys']:
@@ -629,6 +768,7 @@ class NewLimitDB(object):
         self.fill_esstate_data(esstaterowdata)
         self.create_version_table()
         self.fill_version_data(version, date, datesec)
+        ensure_fingerprint_table(self.db)
 
     def __enter__(self):
         return self
@@ -732,13 +872,15 @@ def query_most_recent_msids_sets(db, tabletype):
     """
     cursor = db.cursor()
     if tabletype.lower() == 'limit':
-        cursor.execute("""SELECT a.msid, a.setkey FROM limits AS a
+        cursor.execute("""SELECT a.msid, a.setkey FROM limits AS a 
                           WHERE a.modversion = (SELECT MAX(b.modversion) FROM limits AS b
-                          WHERE a.msid = b.msid and a.setkey = b.setkey) """)
+                          WHERE a.msid = b.msid and a.setkey = b.setkey) 
+                          ORDER BY a.datesec, a.msid, a.setkey""")
     elif tabletype.lower() == 'expected_state':
-        cursor.execute("""SELECT a.msid, a.setkey FROM expected_states AS a
+        cursor.execute("""SELECT a.msid, a.setkey FROM expected_states AS a 
                           WHERE a.modversion = (SELECT MAX(b.modversion) FROM expected_states AS b
-                          WHERE a.msid = b.msid and a.setkey = b.setkey) """)
+                          WHERE a.msid = b.msid and a.setkey = b.setkey) 
+                          ORDER BY a.datesec, a.msid, a.setkey""")
     else:
         raise_tabletype_error(tabletype)
     return cursor.fetchall()
@@ -760,11 +902,13 @@ def query_most_recent_disabled_msids_sets(db, tabletype):
     if tabletype.lower() == 'limit':
         cursor.execute("""SELECT a.msid, a.setkey FROM limits AS a WHERE a.mlmenable = 0 AND
                           a.modversion = (SELECT MAX(b.modversion) FROM limits AS b
-                          WHERE a.msid = b.msid and a.setkey = b.setkey) """)
+                          WHERE a.msid = b.msid and a.setkey = b.setkey) 
+                          ORDER BY a.datesec, a.msid, a.setkey""")
     elif tabletype.lower() == 'expected_state':
         cursor.execute("""SELECT a.msid, a.setkey FROM expected_states AS a WHERE a.mlmenable = 0 AND
                           a.modversion = (SELECT MAX(b.modversion) FROM expected_states AS b
-                          WHERE a.msid = b.msid and a.setkey = b.setkey) """)
+                          WHERE a.msid = b.msid and a.setkey = b.setkey) 
+                          ORDER BY a.datesec, a.msid, a.setkey""")
     else:
         raise_tabletype_error(tabletype)
     return cursor.fetchall()
@@ -785,15 +929,17 @@ def query_most_recent_changeable_data(db, tabletype):
     """
     cursor = db.cursor()
     if tabletype.lower() == 'limit':
-        cursor.execute("""SELECT a.msid, a.setkey, a.mlmenable, a.mlmtol, a.default_set, a.mlimsw, a.caution_high,
-                          a.caution_low, a.warning_high, a.warning_low, a.switchstate FROM limits AS a
+        cursor.execute("""SELECT a.msid, a.setkey, a.mlmenable, a.mlmtol, a.default_set, a.mlimsw, a.caution_high, 
+                          a.caution_low, a.warning_high, a.warning_low, a.switchstate FROM limits AS a 
                           WHERE a.modversion = (SELECT MAX(b.modversion) FROM limits AS b
-                          WHERE a.msid = b.msid and a.setkey = b.setkey) """)
+                          WHERE a.msid = b.msid and a.setkey = b.setkey) 
+                          ORDER BY a.datesec, a.msid, a.setkey""")
     elif tabletype.lower() == 'expected_state':
-        cursor.execute("""SELECT a.msid, a.setkey, a.mlmenable, a.mlmtol, a.default_set, a.mlimsw, a.expst, a.switchstate
-                          FROM expected_states AS a
+        cursor.execute("""SELECT a.msid, a.setkey, a.mlmenable, a.mlmtol, a.default_set, a.mlimsw, a.expst, a.switchstate 
+                          FROM expected_states AS a 
                           WHERE a.modversion = (SELECT MAX(b.modversion) FROM expected_states AS b
-                          WHERE a.msid = b.msid and a.setkey = b.setkey) """)
+                          WHERE a.msid = b.msid and a.setkey = b.setkey) 
+                          ORDER BY a.datesec, a.msid, a.setkey""")
     else:
         raise_tabletype_error(tabletype)
     return cursor.fetchall()
@@ -813,13 +959,17 @@ def commit_new_rows(db, rows, tabletype):
             oldcursor.execute("""INSERT INTO limits(msid, setkey, datesec, date, modversion, mlmenable, mlmtol,
                                  default_set, mlimsw, caution_high, caution_low, warning_high, warning_low, switchstate)
                                  VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", row)
-            logging.info('    Added new row:{}.'.format(row))
+            row_logger = get_logger(__name__, msid=row[0], setkey=row[1], datesec=row[2],
+                                    revision=row[4], tabletype=tabletype)
+            row_logger.info('Added limit row')
 
     elif tabletype.lower() == 'expected_state':
         for row in rows:
             oldcursor.execute("""INSERT INTO expected_states(msid, setkey, datesec, date, modversion, mlmenable,
                                  mlmtol, default_set, mlimsw, expst, switchstate) VALUES(?,?,?,?,?,?,?,?,?,?,?)""", row)
-            logging.info('    Added new row:{}.'.format(row))
+            row_logger = get_logger(__name__, msid=row[0], setkey=row[1], datesec=row[2],
+                                    revision=row[4], tabletype=tabletype)
+            row_logger.info('Added expected_state row')
     else:
         raise_tabletype_error(tabletype)
 
@@ -845,6 +995,9 @@ def commit_new_version_row(olddb, newdb):
     oldcursor = olddb.cursor()
     oldcursor.execute(
         """INSERT INTO versions(version, datesec, date) VALUES(?,?,?)""", (version, datesec, date))
+    version_logger = get_logger(__name__, tabletype='versions', revision=version, datesec=datesec,
+                                version_date=date)
+    version_logger.info('Committed version row')
     olddb.commit()
 
 
@@ -858,13 +1011,13 @@ def add_merge_logging_text(tabletype, functiontype, newlen, oldlen, addlen):
 
     formatted_tabletype = ' '.join([s.capitalize() for s in tabletype.split('_')])
     formatted_functiontype = functiontype.capitalize()
-    logging.info('========== Comparing New and Current {}s Table For {} MSID Sets =========='
-                 .format(formatted_tabletype, formatted_functiontype))
-    logging.debug('Number of {} rows in new DB:{}.'.format(formatted_tabletype, newlen))
-    logging.debug('Number of {} rows in current DB:{}.'.format(formatted_tabletype, oldlen))
-    logging.info('Number of rows to be {} for newly added msid sets: {}.'
-                 .format(formatted_functiontype, addlen))
-    logging.info('---------- Append Rows For {} MSID Sets ----------'.format(formatted_tabletype))
+    merge_logger = get_logger(__name__, tabletype=tabletype)
+    merge_logger.info('Comparing new and current %s table for %s msid sets',
+                      formatted_tabletype, formatted_functiontype)
+    merge_logger.debug('Row counts new=%s current=%s', newlen, oldlen)
+    merge_logger.info('Rows to be %s for newly added msid sets: %s',
+                      formatted_functiontype.lower(), addlen)
+    merge_logger.info('Appending rows for %s msid sets', formatted_tabletype)
 
 
 def merge_added_msidsets(newdb, olddb, tabletype):
@@ -880,7 +1033,8 @@ def merge_added_msidsets(newdb, olddb, tabletype):
     all_old_rows = query_most_recent_msids_sets(olddb, tabletype)
 
     # what is in newrows but not in oldrows
-    not_in_oldrows = set(all_new_rows).difference(set(all_old_rows))
+    not_in_oldrows = sorted(
+        set(all_new_rows).difference(set(all_old_rows)), key=lambda row: (row[0], row[1]))
     addrows = []
     for msidset in not_in_oldrows:
         addrow = query_all_cols_one_row_to_copy(newdb, msidset, tabletype)
@@ -909,11 +1063,13 @@ def merge_deleted_msidsets(newdb, olddb, tabletype):
     all_old_rows = query_most_recent_msids_sets(olddb, tabletype)
     all_old_disabled_rows = query_most_recent_disabled_msids_sets(olddb, tabletype)
 
-    disabled_not_in_newrows = set(all_old_disabled_rows).difference(set(all_new_rows))
+    disabled_not_in_newrows = sorted(
+        set(all_old_disabled_rows).difference(set(all_new_rows)), key=lambda row: (row[0], row[1]))
     all_new_rows.extend(list(disabled_not_in_newrows))
 
     # what is in oldrows but not in newrows
-    not_in_newrows = set(all_old_rows).difference(set(all_new_rows))
+    not_in_newrows = sorted(
+        set(all_old_rows).difference(set(all_new_rows)), key=lambda row: (row[0], row[1]))
     deactivaterows = []
     for msidset in not_in_newrows:
         deactrow = query_all_cols_one_row_to_copy(olddb, msidset, tabletype)
@@ -941,7 +1097,8 @@ def merge_modified_msidsets(newdb, olddb, tabletype):
     all_old_rows = query_most_recent_changeable_data(olddb, tabletype)
 
     # what is in newrows but not in oldrows
-    modified_rows = set(all_new_rows).difference(set(all_old_rows))
+    modified_rows = sorted(
+        set(all_new_rows).difference(set(all_old_rows)), key=lambda row: (row[0], row[1]))
     modrows = []
     newcursor = newdb.cursor()
     for msidset in modified_rows:
@@ -1002,8 +1159,12 @@ def recreate_db(glimmondbfile='glimmondb.sqlite3'):
         db_filename = pathjoin(DBDIR, glimmondbfile)
         copy_anything(temp_filename, db_filename)
 
-        logging.info(
-            '========================= glimmondb.sqlite3 Initialized =========================\n')
+        init_logger = get_logger(__name__, tabletype='initialization',
+                                 db_filename=glimmondbfile)
+        init_logger.info('Initialized %s', glimmondbfile)
+        compute_fingerprints(db_filename, source_file="G_LIMMON_P007A.dec",
+                             source_revision=gdb.get('revision'),
+                             source_date=gdb.get('date'))
 
     def get_glimmon_arch_filenames():
         glimmon_files = glob.glob(pathjoin(DBDIR, 'G_LIMMON_2.*.dec'))
@@ -1065,8 +1226,11 @@ def merge_new_glimmon_to_db(filename, tdbs, glimmondbfile='glimmondb.sqlite3'):
     oldver = oldcursor.fetchone()[0]
 
     textinsert = 'Comparing New (v{}) and Current (v{}) G_LIMMON Databases'.format(newver, oldver)
-    logging.info('')
-    logging.info('                        ========== {} =========='.format(textinsert))
+    import_logger = get_logger(__name__, revision=newver, tabletype='version',
+                               glimmon_filename=filename)
+    import_logger.info('Imported G_LIMMON file %s with revision %s and date %s',
+                       filename, g.get('revision'), g.get('date'))
+    import_logger.info(textinsert)
 
     newdb = create_db(g)
 
@@ -1081,6 +1245,8 @@ def merge_new_glimmon_to_db(filename, tdbs, glimmondbfile='glimmondb.sqlite3'):
     merge_modified_msidsets(newdb, olddb, 'expected_state')
 
     commit_new_version_row(olddb, newdb)
+    compute_fingerprints(glimmondb_filename, source_file=filename,
+                         source_revision=g.get('revision'), source_date=g.get('date'))
 
     newdb.close()
     olddb.close()
