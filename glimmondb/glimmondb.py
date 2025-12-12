@@ -69,16 +69,16 @@ class JsonFormatter(logging.Formatter):
 
 
 def get_logger(name=None, **context):
-    """Return a context-aware logger; configure handlers once."""
-    root = logging.getLogger()
-    if not root.handlers:
+    """Return a context-aware logger scoped to this package; configure handlers once."""
+    pkg_logger = logging.getLogger("glimmondb")
+    if not pkg_logger.handlers:
         stream_level_name = environ.get('GLIMMON_STREAM_LEVEL', 'INFO').upper()
         file_level_name = environ.get('GLIMMON_FILE_LEVEL', 'DEBUG').upper()
         stream_level = getattr(logging, stream_level_name, logging.INFO)
         file_level = getattr(logging, file_level_name, logging.DEBUG)
 
-        # Set root to the most verbose so handlers can filter appropriately.
-        root.setLevel(min(stream_level, file_level))
+        # Set logger to the most verbose so handlers can filter appropriately.
+        pkg_logger.setLevel(min(stream_level, file_level))
         file_handler = logging.FileHandler(logfile)
         stream_handler = logging.StreamHandler(sys.stdout)
         formatter = JsonFormatter()
@@ -86,9 +86,12 @@ def get_logger(name=None, **context):
         stream_handler.setFormatter(formatter)
         file_handler.setLevel(file_level)
         stream_handler.setLevel(stream_level)
-        root.addHandler(file_handler)
-        root.addHandler(stream_handler)
-    base_logger = logging.getLogger(name)
+        pkg_logger.addHandler(file_handler)
+        pkg_logger.addHandler(stream_handler)
+        pkg_logger.propagate = False  # keep other modules' logs out of this file
+
+    base_name = "glimmondb" if name is None else f"glimmondb.{name}"
+    base_logger = logging.getLogger(base_name)
     return LoggerAdapter(base_logger, context)
 
 
