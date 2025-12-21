@@ -52,6 +52,10 @@ class JsonFormatter(logging.Formatter):
 def _configure_logging():
     """Attach file/stdout handlers to the package logger if none exist."""
     pkg_logger = logging.getLogger("glimmondb")
+    if getattr(pkg_logger, "_glimmondb_configured", False):
+        return
+
+    log_path = Path(logfile).resolve()
     stream_level_name = environ.get('GLIMMON_STREAM_LEVEL', 'INFO').upper()
     file_level_name = environ.get('GLIMMON_FILE_LEVEL', 'DEBUG').upper()
     stream_level = getattr(logging, stream_level_name, logging.INFO)
@@ -60,11 +64,12 @@ def _configure_logging():
     formatter = JsonFormatter()
 
     file_handler_present = any(
-        isinstance(handler, logging.FileHandler) and Path(getattr(handler, "baseFilename", "")) == Path(logfile)
+        isinstance(handler, logging.FileHandler)
+        and Path(getattr(handler, "baseFilename", "")).resolve() == log_path
         for handler in pkg_logger.handlers
     )
     if not file_handler_present:
-        file_handler = logging.FileHandler(logfile)
+        file_handler = logging.FileHandler(log_path, delay=True)
         file_handler.setFormatter(formatter)
         file_handler.setLevel(file_level)
         pkg_logger.addHandler(file_handler)
@@ -80,6 +85,7 @@ def _configure_logging():
         pkg_logger.addHandler(stream_handler)
 
     pkg_logger.propagate = False
+    pkg_logger._glimmondb_configured = True
 
 
 def get_logger(name=None, **context):
