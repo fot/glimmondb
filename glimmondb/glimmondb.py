@@ -29,7 +29,7 @@ def _require_path(primary_var, fallback_var=None, fallback_suffix=None):
 DBDIR = _require_path('GLIMMONDATA', 'SKA_DATA', 'glimmon_archive')
 TDBDIR = _require_path('TDBDATA', 'SKA_DATA', 'fot_tdb_archive')
 
-logfile = pathjoin(str(DBDIR), 'DB_Commit.log')
+logfile = str((Path(DBDIR) / 'DB_Commit.log').resolve())
 
 logging.getLogger("glimmondb").addHandler(logging.NullHandler())
 
