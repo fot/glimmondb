@@ -78,12 +78,12 @@ def get_tdb(tdbs=None, revision=000, return_dates=False):
 
     """
 
-    startdates = {'p007': '1999:203:00:00:00', 'p009': '2008:024:21:00:00',
-                  'p010': '2012:089:20:00:00', 'p011': '2014:156:20:00:00',
-                  'p012': '2014:338:21:00:00', 'p013': '2015:162:20:00:00',
-                  'p014': '2015:239:20:00:00', 'p015': '2021:063:21:00:00',
-                  'p016': '2021:343:21:00:00', 'p017': '2024:151:20:00:00', 
-                  'p018': '2026:064:20:00:00'}
+    startdates = {'p007': '1999:203:00:00:00', 'p008': '2001:354:21:00:00',
+                  'p009': '2008:024:21:00:00', 'p010': '2012:089:20:00:00', 
+                  'p011': '2014:156:20:00:00', 'p012': '2014:338:21:00:00', 
+                  'p013': '2015:162:20:00:00', 'p014': '2015:239:20:00:00', 
+                  'p015': '2021:063:21:00:00', 'p016': '2021:343:21:00:00', 
+                  'p017': '2024:151:20:00:00', 'p018': '2026:064:20:00:00'}
 
     if return_dates:
         return startdates
@@ -94,9 +94,12 @@ def get_tdb(tdbs=None, revision=000, return_dates=False):
             tdbs = _load_pickle_file(tdbfile)
 
         revision = int(revision)
-        if revision <= 130:
+        if revision <= 16:     # p007 ends with 16
             print ('Using P007')
             tdb = tdbs['p007']
+        elif revision <= 130:  # p008 starts with 17 and ends with 130 (inclusive)
+            print ('Using P008')
+            tdb = tdbs['p008']
         elif revision <= 228:  # p009 starts with 131 and ends with 228 (inclusive)
             print ('Using P009')
             tdb = tdbs['p009']
